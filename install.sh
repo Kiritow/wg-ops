@@ -13,7 +13,7 @@ rm udp2raw.tgz
 cd ..
 
 VERIFIED_HASH="a7ce38b2c30980be4e71c3af8a9c1db8183db349c699fa6f843e67add7e6cca2"
-TEMP_HASH=$(sha256sum udp2raw_amd64 | awk '{print $1}')
+TEMP_HASH=$(sha256sum bin/udp2raw_amd64 | awk '{print $1}')
 if [ "$TEMP_HASH" == "$VERIFIED_HASH" ]
 then
     echo "[OK] udp2raw hash match: $TEMP_HASH"
