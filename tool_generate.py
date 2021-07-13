@@ -13,6 +13,7 @@ except Exception:
 udp_clients = config["udp2raw"]["client"]
 udp_servers = config["udp2raw"]["server"]
 
+print("Generating wireguard config...")
 with open("{}.conf".format(config["interface"]), "w", encoding='utf-8') as f:
     f.write('''[Interface]
 Address = {}
@@ -31,9 +32,11 @@ AllowedIPs = {}
         if info["keepalive"]:
             f.write("PersistentKeepalive = {}".format(info["keepalive"]))
 
+
+print("Generating start script...")
 with open("start.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
-set -x
+set -e
 
 cp {}.conf /etc/wireguard/
 tmux new-session -s tunnel -d
