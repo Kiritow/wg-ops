@@ -88,9 +88,21 @@ if op_mode in ("c", "m"):
 wg_prik = os.getenv("WG_MYPRIK")
 wg_pubk = os.getenv("WG_MYPUBK")
 wg_mtu = "1000"
-print("====== Your Wireguard Public Key ======")
-print(wg_pubk)
-print("=======================================")
+wg_public_ip = os.getenv("WG_PUBLICIP")
+
+print('''
+
+====== Your Wireguard Public Key ======
+
+{}
+
+======= Your Public IP Address ========
+
+{}
+
+=======================================
+
+'''.format(wg_pubk, wg_public_ip))
 
 ifname = input("Input new wireguard interface name (wg0):").strip() or "wg0"
 listen_port = input("Input new wireguard listen port (51820): ").strip() or "51820"

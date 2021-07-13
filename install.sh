@@ -9,6 +9,7 @@ cd bin
 curl -vL https://github.com/wangyu-/udp2raw-tunnel/releases/download/20200818.0/udp2raw_binaries.tar.gz -o udp2raw.tgz
 
 tar -xvzf udp2raw.tgz udp2raw_amd64
+chmod +x udp2raw_amd64
 rm udp2raw.tgz
 cd ..
 

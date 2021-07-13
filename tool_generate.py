@@ -10,6 +10,7 @@ except Exception:
     print(traceback.format_exc())
     print("[ERROR] No valid config found.")
 
+op_mode = config["mode"]
 udp_clients = config["udp2raw"]["client"]
 udp_servers = config["udp2raw"]["server"]
 
@@ -42,11 +43,16 @@ cp {}.conf /etc/wireguard/
 tmux new-session -s tunnel -d
 '''.format(config["interface"]))
     for info in udp_clients:
-        f.write('''tmux new-window -t tunnel -d './udp2raw_amd64 -c -l127.0.0.1:{} -r{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], info["remote"], info["password"]))
+        f.write('''tmux new-window -t tunnel -d 'bin/udp2raw_amd64 -c -l127.0.0.1:{} -r{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], info["remote"], info["password"]))
 
     for info in udp_servers:
-        f.write('''tmux new-window -t tunnel -d './udp2raw_amd64 -s -l0.0.0.0:{} -r 127.0.0.1:{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], config["listen"], info["password"]))
+        f.write('''tmux new-window -t tunnel -d 'bin/udp2raw_amd64 -s -l0.0.0.0:{} -r 127.0.0.1:{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], config["listen"], info["password"]))
+
+    if op_mode in ("s", "m"):
+        f.write("sysctl net.ipv4.ip_forward=1\n")
 
     f.write('''wg-quick up {}
 tmux attach-session -t tunnel
 '''.format(config["interface"]))
+
+print("[OK] Config generated. Be sure to configure and enable UFW (or any other firewall) before start.")
