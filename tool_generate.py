@@ -34,12 +34,16 @@ AllowedIPs = {}
 with open("start.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -x
+
+cp {}.conf /etc/wireguard/
 tmux new-session -s tunnel -d
-''')
+'''.format(config["interface"]))
     for info in udp_clients:
         f.write('''tmux new-window -t tunnel -d './udp2raw_amd64 -c -l127.0.0.1:{} -r{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], info["remote"], info["password"]))
 
     for info in udp_servers:
         f.write('''tmux new-window -t tunnel -d './udp2raw_amd64 -s -l0.0.0.0:{} -r 127.0.0.1:{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], config["listen"], info["password"]))
 
-    f.write('''tmux attach-session -t tunnel\n''')
+    f.write('''wg-quick up {}
+tmux attach-session -t tunnel
+'''.format(config["interface"]))
