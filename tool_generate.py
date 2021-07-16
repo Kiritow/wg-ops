@@ -44,7 +44,7 @@ AllowedIPs = {}
                 # WG --> Tunnel
                 f.write("Endpoint = 127.0.0.1:{}\n".format(udp_info["port"]))
         if info["keepalive"]:
-            f.write("PersistentKeepalive = {}".format(info["keepalive"]))
+            f.write("PersistentKeepalive = {}\n".format(info["keepalive"]))
 
 os.system("chmod 600 {}.conf".format(config["interface"]))
 
