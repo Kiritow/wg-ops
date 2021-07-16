@@ -45,10 +45,24 @@ if op_mode in ("s", "m"):
                 print("A udp2raw tunnel password is required. Try again.")
                 continue
             break
+        
+        is_enable_speeder = input("Enable UDP Speeder for this tunnel? [Y/n]: ").strip()
+        if not is_enable_speeder or is_enable_speeder.lower() in ('y', 'yes'):
+            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip()
+            speeder_info = {
+                "enable": True,
+                "port": 27100 + len(udp2raw_config["server"]),
+                "ratio": speeder_ratio
+            }
+        else:
+            speeder_info = {
+                "enable": False
+            }
 
         udp2raw_config["server"].append({
             "port": udp_server_port,
-            "password": udp_server_password
+            "password": udp_server_password,
+            "speeder": speeder_info
         })
 
         if not input("Add more udp2raw server? (Keep empty to finish)").strip():
@@ -75,12 +89,26 @@ if op_mode in ("c", "m"):
                 continue
             break
 
+        is_enable_speeder = input("Enable UDP Speeder for this tunnel? [Y/n]: ").strip()
+        if not is_enable_speeder or is_enable_speeder.lower() in ('y', 'yes'):
+            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip()
+            speeder_info = {
+                "enable": True,
+                "port": 28100 + len(udp2raw_config["server"]),
+                "ratio": speeder_ratio
+            }
+        else:
+            speeder_info = {
+                "enable": False
+            }
+
         udp2raw_config["client"].append({
             "remote": udp_server_address,
             "password": udp_server_password,
-            "port": 28150 + len(udp2raw_config["client"])
+            "port": 29100 + len(udp2raw_config["client"]),
+            "speeder": speeder_info
         })
-    
+
         if not input("Add more udp2raw client? (Keep empty to finish)").strip():
             break
 
@@ -153,6 +181,7 @@ while True:
 print("Saving to local config...")
 
 config = {
+    "version": 1,
     "mode": op_mode,
     "pubkey": wg_pubk,
     "prikey": wg_prik,
