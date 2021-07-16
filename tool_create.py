@@ -135,7 +135,10 @@ while True:
         print("[{}] UDP2Raw Tunnel to Remote {}".format(index + 1, client_info["remote"]))
 
     peer_endpoint = input("Enter Wireguard Peer Endpoint (ID from tunnel list, keep empty on server side): ").strip()
-    peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds (Keep empty on server side): ").strip()
+    if peer_endpoint:
+        peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds: ").strip()
+    else:
+        peer_keepalive = ""
 
     peers.append({
         "pubkey": peer_pubk,

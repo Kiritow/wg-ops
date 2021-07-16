@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import json
 import traceback
 
@@ -33,6 +34,7 @@ AllowedIPs = {}
         if info["keepalive"]:
             f.write("PersistentKeepalive = {}".format(info["keepalive"]))
 
+os.system("chmod 600 {}.conf".format(config["interface"]))
 
 print("Generating start script...")
 with open("start.sh", "w", encoding='utf-8') as f:
@@ -55,4 +57,9 @@ tmux new-session -s tunnel -d
 tmux attach-session -t tunnel
 '''.format(config["interface"]))
 
-print("[OK] Config generated. Be sure to configure and enable UFW (or any other firewall) before start.")
+print('''[OK] Config generated. Before you run start.sh, besure to:
+1. Disable SSH Server password login.
+2. Enable UFW (or any other firewall)
+
+Safety First.
+''')
