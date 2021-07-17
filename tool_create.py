@@ -4,7 +4,7 @@ import json
 import traceback
 
 try:
-    with open("config.json") as f:
+    with open("local/config.json") as f:
         content = f.read()
     config = json.loads(content)
     print("[WARN] Found a valid config. Creation of server is skipped.")
@@ -193,5 +193,5 @@ config = {
     "udp2raw": udp2raw_config
 }
 
-with open("config.json", "w") as f:
+with open("local/config.json", "w") as f:
     f.write(json.dumps(config, ensure_ascii=False))

@@ -4,7 +4,7 @@ import json
 import traceback
 
 try:
-    with open("config.json") as f:
+    with open("local/config.json") as f:
         content = f.read()
     config = json.loads(content)
 except Exception:
@@ -22,7 +22,7 @@ udp_servers = config["udp2raw"]["server"]
 
 
 print("Generating wireguard config...")
-with open("{}.conf".format(config["interface"]), "w", encoding='utf-8') as f:
+with open("local/{}.conf".format(config["interface"]), "w", encoding='utf-8') as f:
     f.write('''[Interface]
 Address = {}
 PrivateKey = {}
@@ -53,8 +53,8 @@ with open("start.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -e
 
-cp {}.conf /etc/wireguard/
-tmux new-session -s tunnel -d
+cp local/{}.conf /etc/wireguard/
+tmux new-session -s tunnel -d 'watch -n 1 wg'
 '''.format(config["interface"]))
     for info in udp_clients:
         if info["speeder"]["enable"]:
@@ -84,6 +84,17 @@ tmux new-session -s tunnel -d
     f.write('''wg-quick up {}
 tmux attach-session -t tunnel
 '''.format(config["interface"]))
+
+
+print("Generating stop script...")
+with open("stop.sh", "w", encoding='utf-8') as f:
+    f.write('''#!/bin/bash
+set -e
+
+wg-quick down {}
+tmux kill-session -t tunnel
+'''.format(config["interface"]))
+
 
 print('''[OK] Config generated. Before you run start.sh, besure to:
 1. Disable SSH Server password login.

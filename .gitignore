@@ -1,5 +1,7 @@
 bin/
+local/
 
 *.json
 *.conf
 start.sh
+stop.sh

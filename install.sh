@@ -4,6 +4,8 @@ set -xe
 apt update
 apt install -y curl wireguard python3
 
+mkdir -p local
+
 mkdir -p bin
 cd bin
 curl -vL https://github.com/wangyu-/udp2raw-tunnel/releases/download/20200818.0/udp2raw_binaries.tar.gz -o udp2raw.tgz
