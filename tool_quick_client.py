@@ -13,7 +13,7 @@ if config:
 
 print("No valid config found, creating a default one...")
 
-ifname = input("Input new wireguard interface name (wg0):").strip() or "wg0"
+ifname = input("Input new wireguard interface name (wg0): ").strip() or "wg0"
 listen_port = input("Input new wireguard listen port (51820): ").strip() or "51820"
 while True:
     ifip = input("Input wireguard interface ip (Example: 10.0.0.1)\n> ").strip()
