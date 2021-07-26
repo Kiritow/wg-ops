@@ -4,16 +4,14 @@ import getpass
 from tool_common import load_config, save_config, SimpleLogger, json_to_base64
 
 
-logger = SimpleLogger()
-
 config = load_config()
 if config:
-    logger.warn("Valid config found. Creation of server is skipped.")
+    print("Valid config found. Creation of server is skipped.")
     exit(0)
 else:
-    logger.info("No config found. Start creating interactively.")
+    print("No config found. Start creating interactively.")
 
-print("===== Choose Role =====")
+print("====== Choose Role ======")
 
 op_mode = input("What will this node act as? (C)lient [S]erver [M]ixed: ").strip().lower()
 if not op_mode:
@@ -172,22 +170,26 @@ save_config(config)
 
 
 if op_mode in ("s", "m"):
+    if ifip.endswith(".1"):
+        suggest_allowed = "{}.0/24".format('.'.join(ifip.split('.')[:-1]))
+    else:
+        suggest_allowed = ifip
+
     print("===== Quick Import =====")
     for info in udp2raw_config["server"]:
-        target_config = {
-            "udp2raw": {
-                "client": [{
-                    "remote": "{}:{}".format(wg_public_ip, info["port"]),
-                    "password": info["password"],
-                    "port": "",
-                    "speeder": info["speeder"]
-                }]
+        target_quick_config = {
+            "udp2raw_client": {
+                "remote": "{}:{}".format(wg_public_ip, info["port"]),
+                "password": "",
+                "port": "29100",
+                "speeder": info["speeder"]
             },
-            "pubkey": wg_pubk
+            "server_pubkey": wg_pubk,
+            "suggest_allowed": suggest_allowed
         }
 
-        print("Connect to this server via tunnel at port {}: (credential included) \n".format(info["port"]))
-        print("    {}\n".format(json_to_base64(target_config)))
+        print("Connect to this server via tunnel at port {}: (credential excluded) \n".format(info["port"]))
+        print("#QCS#{}\n".format(json_to_base64(target_quick_config)))
 
 
 # Configure Peer
@@ -207,17 +209,15 @@ while True:
             continue
         break
 
-    print(">>> Choose from following udp2raw clients <<<")
     if config["udp2raw"]["client"]:
+        print(">>> Choose from following udp2raw clients <<<")
         for index, client_info in enumerate(config["udp2raw"]["client"]):
             print("[{}] UDP2Raw Tunnel to Remote {}".format(index + 1, client_info["remote"]))
-    else:
-        print("  no client  ")
 
-    peer_endpoint = input("Enter Wireguard Peer Endpoint (ID from tunnel list, keep empty on server side): ").strip()
-    if peer_endpoint:
+        peer_endpoint = input("Enter Wireguard Peer Endpoint (ID from list, default to 1): ").strip() or "1"
         peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds (default to 30): ").strip() or "30"
     else:
+        peer_endpoint = ""
         peer_keepalive = "30"
 
     config["peers"].append({

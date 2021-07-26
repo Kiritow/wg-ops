@@ -56,7 +56,7 @@ def save_config(config, filename=None):
             f.write(content)
     except Exception:
         logger.error("Unable to save config: {}".format(traceback.format_exc()))
-        logger.info("Config: {}".format(content))
+        logger.info("Config:\n{}".format(content))
 
 
 def json_to_base64(content):

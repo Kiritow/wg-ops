@@ -95,8 +95,6 @@ wg-quick down {}
 tmux kill-session -t tunnel
 '''.format(config["interface"]))
 
-os.system("chmod +x stop.sh")
-
 
 logger.info("Generating restart script...")
 with open("restart.sh", "w", encoding='utf-8') as f:
@@ -104,8 +102,6 @@ with open("restart.sh", "w", encoding='utf-8') as f:
 set -e
 ./stop.sh && ./start.sh
 ''')
-
-os.system("chmod +x restart.sh")
 
 
 logger.info('''[Done] Config generated. Before you run start.sh, besure to:
