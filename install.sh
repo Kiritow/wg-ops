@@ -1,8 +1,8 @@
 #!/bin/bash
 set -xe
 
-apt update
-apt install -y curl wireguard python3
+sudo apt update
+sudo apt install -y curl wireguard python3
 
 mkdir -p local
 

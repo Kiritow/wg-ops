@@ -80,10 +80,10 @@ config = {
         "endpoint": "1",
         "keepalive": peer_keepalive
     }],
-    "udp2raw": [{
+    "udp2raw": {
         "client": [paste_config["udp2raw_client"]],
         "server": []
-    }]
+    }
 }
 
 print("Saving config...")
@@ -102,3 +102,4 @@ print('''
 =======================================
 
 '''.format(os.getenv("WG_MYPUBK"), ifip))
+
