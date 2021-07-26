@@ -1,6 +1,9 @@
 bin/
 local/
 
+.idea/
+__pycache__/
+
 *.json
 *.conf
 start.sh

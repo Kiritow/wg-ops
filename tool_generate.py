@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 import os
-import json
-import traceback
+from tool_common import load_config, SimpleLogger
 
-try:
-    with open("local/config.json") as f:
-        content = f.read()
-    config = json.loads(content)
-except Exception:
-    print(traceback.format_exc())
-    print("[ERROR] No valid config found.")
+
+logger = SimpleLogger()
+
+
+config = load_config()
+if not config:
+    logger.error("No valid config found.")
+    exit(1)
 
 
 if "version" not in config or int(config["version"]) < 1:
-    print("[WARN] Legacy version of config found. This may cause issues.")
+    logger.warn("[WARN] Legacy version of config found. This may cause issues.")
 
 
 op_mode = config["mode"]
@@ -21,7 +21,7 @@ udp_clients = config["udp2raw"]["client"]
 udp_servers = config["udp2raw"]["server"]
 
 
-print("Generating wireguard config...")
+logger.info("Generating wireguard config...")
 with open("local/{}.conf".format(config["interface"]), "w", encoding='utf-8') as f:
     f.write('''[Interface]
 Address = {}
@@ -48,7 +48,7 @@ AllowedIPs = {}
 
 os.system("chmod 600 {}.conf".format(config["interface"]))
 
-print("Generating start script...")
+logger.info("Generating start script...")
 with open("start.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -e
@@ -86,7 +86,7 @@ tmux attach-session -t tunnel
 '''.format(config["interface"]))
 
 
-print("Generating stop script...")
+logger.info("Generating stop script...")
 with open("stop.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -e
@@ -95,8 +95,20 @@ wg-quick down {}
 tmux kill-session -t tunnel
 '''.format(config["interface"]))
 
+os.system("chmod +x stop.sh")
 
-print('''[OK] Config generated. Before you run start.sh, besure to:
+
+logger.info("Generating restart script...")
+with open("restart.sh", "w", encoding='utf-8') as f:
+    f.write('''#!/bin/bash
+set -e
+./stop.sh && ./start.sh
+''')
+
+os.system("chmod +x restart.sh")
+
+
+logger.info('''[Done] Config generated. Before you run start.sh, besure to:
 1. Disable SSH Server password login.
 2. Enable UFW (or any other firewall)
 
