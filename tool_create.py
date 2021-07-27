@@ -54,7 +54,7 @@ if op_mode in ("s", "m"):
 
         is_enable_speeder = input("Enable UDP Speeder for this tunnel? [Y/n]: ").strip()
         if not is_enable_speeder or is_enable_speeder.lower() in ('y', 'yes'):
-            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip()
+            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip() or "20:10"
             speeder_info = {
                 "enable": True,
                 "port": 27100 + len(udp2raw_config["server"]),
@@ -102,7 +102,7 @@ if op_mode in ("c", "m"):
 
         is_enable_speeder = input("Enable UDP Speeder for this tunnel? [Y/n]: ").strip()
         if not is_enable_speeder or is_enable_speeder.lower() in ('y', 'yes'):
-            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip()
+            speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip() or "20:10"
             speeder_info = {
                 "enable": True,
                 "port": 28100 + len(udp2raw_config["server"]),
