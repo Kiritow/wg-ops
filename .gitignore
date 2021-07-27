@@ -8,3 +8,4 @@ __pycache__/
 *.conf
 start.sh
 stop.sh
+restart.sh

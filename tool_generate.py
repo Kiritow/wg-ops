@@ -46,7 +46,7 @@ AllowedIPs = {}
         if info["keepalive"]:
             f.write("PersistentKeepalive = {}\n".format(info["keepalive"]))
 
-os.system("chmod 600 {}.conf".format(config["interface"]))
+os.system("chmod 600 local/{}.conf".format(config["interface"]))
 
 logger.info("Generating start script...")
 with open("start.sh", "w", encoding='utf-8') as f:
@@ -89,6 +89,7 @@ tmux attach-session -t tunnel
 logger.info("Generating stop script...")
 with open("stop.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
+set -x
 wg-quick down {}
 tmux kill-session -t tunnel
 '''.format(config["interface"]))
@@ -97,7 +98,9 @@ tmux kill-session -t tunnel
 logger.info("Generating restart script...")
 with open("restart.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
-./stop.sh && ./start.sh
+set -x
+./stop.sh
+./start.sh
 ''')
 
 

@@ -218,7 +218,7 @@ while True:
         peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds (default to 30): ").strip() or "30"
     else:
         peer_endpoint = ""
-        peer_keepalive = "30"
+        peer_keepalive = ""
 
     config["peers"].append({
         "pubkey": peer_pubk,
