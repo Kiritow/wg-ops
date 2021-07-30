@@ -9,15 +9,14 @@ mkdir -p local
 mkdir -p bin
 cd bin
 
-curl -vL https://github.com/wangyu-/udp2raw-tunnel/releases/download/20200818.0/udp2raw_binaries.tar.gz -o udp2raw.tgz
-tar -xvzf udp2raw.tgz udp2raw_amd64
-chmod +x udp2raw_amd64
-rm udp2raw.tgz
+git clone https://gitee.com/kiritow/wg-op-binary
+cd wg-op-binary
 
-curl -vL https://github.com/wangyu-/UDPspeeder/releases/download/20210116.0/speederv2_binaries.tar.gz -o udpspeeder.tgz
-tar -xvzf udpspeeder.tgz speederv2_amd64
-chmod +x speederv2_amd64
-rm udpspeeder.tgz
+openssl enc -aes-256-cbc -pbkdf2 -a -d -in bin.01 -out ../udp2raw_amd64
+openssl enc -aes-256-cbc -pbkdf2 -a -d -in bin.02 -out ../speederv2_amd64
+
+cd ..
+rm -rf wg-op-binary
 
 cd ..
 
