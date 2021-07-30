@@ -16,9 +16,9 @@ Start service on system start-up: `systemctl enable wg-quick@wg0`
 
 See [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html) for more information.
 
-### Quick Import
+### Quick Create
 
-On client-only nodes, run `quick_create_client.sh` and paste the **Quick Import String** (starts with `#QCS#`) to setup quickly.
+On client-only nodes, run `quick_create_client.sh` and paste the **Quick Create String** (starts with `#QCS#`) to setup quickly.
 
 ## Notice
 
