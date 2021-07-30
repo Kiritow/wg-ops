@@ -14,6 +14,8 @@ cd wg-op-binary
 
 openssl enc -aes-256-cbc -pbkdf2 -a -d -in bin.01 -out ../udp2raw_amd64
 openssl enc -aes-256-cbc -pbkdf2 -a -d -in bin.02 -out ../speederv2_amd64
+chmod +x udp2raw_amd64
+chmod +x speederv2_amd64
 
 cd ..
 rm -rf wg-op-binary
