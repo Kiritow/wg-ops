@@ -110,9 +110,9 @@ with open("start.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -e
 
-cp local/{}.conf /etc/wireguard/
-wg-quick up {}
-tmux attach-session -t tunnel
+sudo cp local/{}.conf /etc/wireguard/
+sudo wg-quick up {}
+sudo tmux attach-session -t tunnel
 '''.format(config["interface"], config["interface"]))
 
 
@@ -120,7 +120,7 @@ logger.info("Generating stop script...")
 with open("stop.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -x
-wg-quick down {}
+sudo wg-quick down {}
 '''.format(config["interface"]))
 
 

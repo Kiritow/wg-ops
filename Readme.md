@@ -2,19 +2,23 @@
 
 A group of Interactive bash scripts for [Wireguard](https://github.com/WireGuard/wireguard-go) over [udp2raw-tunnel](https://github.com/wangyu-/udp2raw-tunnel), with optional [UDPSpeeder](https://github.com/wangyu-/UDPspeeder) support.
 
-## Usage
+## Basic Usage
 
-1. Run `install.sh`. (May require Super user permission)
+1. Run `install.sh`. (May prompt sudo)
 
 2. Run `create.sh` and fill in content interactively.
 
-3. Run the generated `start.sh`. (May require Super user permission)
+3. Run the generated `start.sh`. (May prompt sudo)
 
 Start as service: `systemctl start wg-quick@wg0`
 
 Start service on system start-up: `systemctl enable wg-quick@wg0`
 
 See [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html) for more information.
+
+### Quick Import
+
+On client-only nodes, run `quick_create_client.sh` and paste the **Quick Import String** (starts with `#QCS#`) to setup quickly.
 
 ## Notice
 
