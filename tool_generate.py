@@ -1,9 +1,24 @@
 # -*- coding: utf-8 -*-
 import os
+import uuid
 from tool_common import load_config, SimpleLogger
 
 
 logger = SimpleLogger()
+
+
+def write_tunnel_config(mode, listen_addr, remote_addr, password):
+    filename = "{}.conf".format(uuid.uuid4())
+    with open("local/tunnel/{}".format(filename), "w", encoding='utf-8') as f:
+        f.write('''
+-{}
+-l {}
+-r {}
+-k {}
+--raw-mode faketcp
+-a
+'''.format(mode, listen_addr, remote_addr, password))
+    return filename
 
 
 config = load_config()
@@ -29,9 +44,51 @@ PrivateKey = {}
 ListenPort = {}
 MTU = {}
 '''.format(config["ip"], config["prikey"], config["listen"], config["mtu"]))
-    
+
+    # Generate PostUp
+    f.write('''PostUp=/bin/tmux new-session -s tunnel -d 'watch -n 1 wg'
+PostUp=sysctl net.core.default_qdisc=fq
+PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
+''')
+
+    if op_mode in ("s", "m"):
+        f.write("PostUp=sysctl net.ipv4.ip_forward=1\n")
+
+    current_dir = os.getcwd()
+    path_tunnel = os.path.join(current_dir, "bin", "udp2raw_amd64")
+    path_speeder = os.path.join(current_dir, "bin", "speederv2_amd64")
+
+    for info in udp_clients:
+        if info["speeder"]["enable"]:
+            # WG --> Speeder --> RawTunnel
+            speeder = info["speeder"]
+            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(path_speeder, speeder["port"], info["port"], speeder["ratio"]))
+
+        filename = write_tunnel_config("c", "127.0.0.1:{}".format(info["port"]), info["remote"], info["password"])
+        filepath = os.path.join(current_dir, "local", "tunnel", filename)
+        f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+
+    for info in udp_servers:
+        if info["speeder"]["enable"]:
+            # RawTunnel --> Speeder --> WG
+            speeder = info["speeder"]
+            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(path_speeder, speeder["port"], config["listen"], speeder["ratio"]))
+
+            filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(speeder["port"]), info["password"])
+            filepath = os.path.join(current_dir, "local", "tunnel", filename)
+            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+        else:
+            # RawTunnel --> WG
+            filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(config["listen"]), info["password"])
+            filepath = os.path.join(current_dir, "local", "tunnel", filename)
+            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+
+    # Generate PostDown
+    f.write("PostDown=/bin/tmux kill-session -t tunnel\n")
+
     for info in config["peers"]:
-        f.write('''[Peer]
+        f.write('''
+[Peer]
 PublicKey = {}
 AllowedIPs = {}
 '''.format(info["pubkey"], info["allowed"]))
@@ -54,36 +111,9 @@ with open("start.sh", "w", encoding='utf-8') as f:
 set -e
 
 cp local/{}.conf /etc/wireguard/
-tmux new-session -s tunnel -d 'watch -n 1 wg'
-'''.format(config["interface"]))
-    for info in udp_clients:
-        if info["speeder"]["enable"]:
-            # WG --> Speeder --> RawTunnel
-            speeder = info["speeder"]
-            f.write('''tmux new-window -t tunnel -d 'bin/speederv2_amd64 -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(speeder["port"], info["port"], speeder["ratio"]))
-
-        f.write('''tmux new-window -t tunnel -d 'bin/udp2raw_amd64 -c -l127.0.0.1:{} -r{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], info["remote"], info["password"]))
-
-    for info in udp_servers:
-        if info["speeder"]["enable"]:
-            # RawTunnel --> Speeder --> WG
-            speeder = info["speeder"]
-            f.write('''tmux new-window -t tunnel -d 'bin/speederv2_amd64 -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(speeder["port"], config["listen"], speeder["ratio"]))
-            f.write('''tmux new-window -t tunnel -d 'bin/udp2raw_amd64 -s -l0.0.0.0:{} -r 127.0.0.1:{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], speeder["port"], info["password"]))
-        else:
-            # RawTunnel --> WG
-            f.write('''tmux new-window -t tunnel -d 'bin/udp2raw_amd64 -s -l0.0.0.0:{} -r 127.0.0.1:{} -k "{}" --raw-mode faketcp -a' \n'''.format(info["port"], config["listen"], info["password"]))
-
-    # Enable BBR
-    f.write("sysctl net.core.default_qdisc=fq\n")
-    f.write("sysctl net.ipv4.tcp_congestion_control=bbr\n")
-
-    if op_mode in ("s", "m"):
-        f.write("sysctl net.ipv4.ip_forward=1\n")
-
-    f.write('''wg-quick up {}
+wg-quick up {}
 tmux attach-session -t tunnel
-'''.format(config["interface"]))
+'''.format(config["interface"], config["interface"]))
 
 
 logger.info("Generating stop script...")
@@ -91,7 +121,6 @@ with open("stop.sh", "w", encoding='utf-8') as f:
     f.write('''#!/bin/bash
 set -x
 wg-quick down {}
-tmux kill-session -t tunnel
 '''.format(config["interface"]))
 
 

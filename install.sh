@@ -5,6 +5,7 @@ sudo apt update
 sudo apt install -y curl wireguard python3
 
 mkdir -p local
+mkdir -p local/tunnel
 
 mkdir -p bin
 cd bin
