@@ -2,7 +2,7 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3
+sudo apt install -y curl wireguard python3 tmux
 
 mkdir -p local
 mkdir -p local/tunnel

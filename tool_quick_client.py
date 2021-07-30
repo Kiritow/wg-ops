@@ -13,12 +13,12 @@ if config:
 
 print("No valid config found, creating a default one...")
 
-ifname = input("Input new wireguard interface name (wg0): ").strip() or "wg0"
-listen_port = input("Input new wireguard listen port (51820): ").strip() or "51820"
+ifname = input("Input new WireGuard interface name (wg0): ").strip() or "wg0"
+listen_port = input("Input new WireGuard listen port (51820): ").strip() or "51820"
 while True:
-    ifip = input("Input wireguard interface ip (Example: 10.0.0.1)\n> ").strip()
+    ifip = input("Input WireGuard interface ip (Example: 10.0.0.1)\n> ").strip()
     if not ifip:
-        print("You MUST set a valid wireguard interface IP. Try Again.")
+        print("You MUST set a valid WireGuard interface IP. Try Again.")
         continue
     break
 
@@ -49,19 +49,19 @@ paste_config["udp2raw_client"]["password"] = udp_server_password
 
 
 if paste_config["suggest_allowed"]:
-    peer_allowed = input("Enter Wireguard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24, default to {})\n> ".format(paste_config["suggest_allowed"])).strip()
+    peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24, default to {})\n> ".format(paste_config["suggest_allowed"])).strip()
     if not peer_allowed:
         peer_allowed = paste_config["suggest_allowed"]
 else:
     while True:
-        peer_allowed = input("Enter Wireguard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24)\n> ").strip()
+        peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24)\n> ").strip()
         if not peer_allowed:
             print("Peer allowed ips required. Try Again.")
             continue
         break
 
 
-peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds (default to 30): ").strip() or "30"
+peer_keepalive = input("Enter WireGuard Peer Keep Alive seconds (default to 30): ").strip() or "30"
 
 
 # Generate Config
@@ -91,7 +91,7 @@ save_config(config)
 
 print('''
 
-====== Your Wireguard Public Key ======
+====== Your WireGuard Public Key ======
 
 {}
 

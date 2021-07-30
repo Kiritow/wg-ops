@@ -131,7 +131,7 @@ wg_public_ip = os.getenv("WG_PUBLICIP")
 
 print('''
 
-====== Your Wireguard Public Key ======
+====== Your WireGuard Public Key ======
 
 {}
 
@@ -143,12 +143,12 @@ print('''
 
 '''.format(wg_pubk, wg_public_ip))
 
-ifname = input("Input new wireguard interface name (wg0):").strip() or "wg0"
-listen_port = input("Input new wireguard listen port (51820): ").strip() or "51820"
+ifname = input("Input new WireGuard interface name (wg0):").strip() or "wg0"
+listen_port = input("Input new WireGuard listen port (51820): ").strip() or "51820"
 while True:
-    ifip = input("Input wireguard interface ip (Example: 10.0.0.1)\n> ").strip()
+    ifip = input("Input WireGuard interface ip (Example: 10.0.0.1)\n> ").strip()
     if not ifip:
-        print("You MUST set a valid wireguard interface IP. Try Again.")
+        print("You MUST set a valid WireGuard interface IP. Try Again.")
         continue
     break
 
@@ -197,13 +197,13 @@ if op_mode in ("s", "m"):
 while True:
     print("====== Adding Peer {} ======".format(len(config["peers"]) + 1))
     while True:
-        peer_pubk = input("Enter Wireguard Peer Public Key: ").strip()
+        peer_pubk = input("Enter WireGuard Peer Public Key: ").strip()
         if not peer_pubk:
             print("A public key is required. Try Again.")
             continue
         break
     while True:
-        peer_allowed = input("Enter Wireguard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24)\n> ").strip()
+        peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24)\n> ").strip()
         if not peer_allowed:
             print("Peer allowed ips required. Try Again.")
             continue
@@ -214,8 +214,8 @@ while True:
         for index, client_info in enumerate(config["udp2raw"]["client"]):
             print("[{}] UDP2Raw Tunnel to Remote {}".format(index + 1, client_info["remote"]))
 
-        peer_endpoint = input("Enter Wireguard Peer Endpoint (ID from list, default to 1): ").strip() or "1"
-        peer_keepalive = input("Enter Wireguard Peer Keep Alive seconds (default to 30): ").strip() or "30"
+        peer_endpoint = input("Enter WireGuard Peer Endpoint (ID from list, default to 1): ").strip() or "1"
+        peer_keepalive = input("Enter WireGuard Peer Keep Alive seconds (default to 30): ").strip() or "30"
     else:
         peer_endpoint = ""
         peer_keepalive = ""

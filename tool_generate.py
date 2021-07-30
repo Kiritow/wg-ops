@@ -36,7 +36,7 @@ udp_clients = config["udp2raw"]["client"]
 udp_servers = config["udp2raw"]["server"]
 
 
-logger.info("Generating wireguard config...")
+logger.info("Generating WireGuard config...")
 with open("local/{}.conf".format(config["interface"]), "w", encoding='utf-8') as f:
     f.write('''[Interface]
 Address = {}

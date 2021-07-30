@@ -1,6 +1,6 @@
-# Wireguard Ops
+# WireGuard Ops
 
-A group of Interactive bash scripts for [Wireguard](https://github.com/WireGuard/wireguard-go) over [udp2raw-tunnel](https://github.com/wangyu-/udp2raw-tunnel), with optional [UDPSpeeder](https://github.com/wangyu-/UDPspeeder) support.
+A group of Interactive bash scripts for [WireGuard](https://github.com/WireGuard/wireguard-go) over [udp2raw-tunnel](https://github.com/wangyu-/udp2raw-tunnel), with optional [UDPSpeeder](https://github.com/wangyu-/UDPspeeder) support.
 
 ## Basic Usage
 
