@@ -46,7 +46,7 @@ MTU = {}
 '''.format(config["ip"], config["prikey"], config["listen"], config["mtu"]))
 
     # Generate PostUp
-    f.write('''PostUp=/bin/tmux new-session -s tunnel -d 'watch -n 1 wg'
+    f.write('''PostUp=/bin/tmux new-session -s tunnel -d 'watch -n 1 --color WG_COLOR_MODE=always wg'
 PostUp=sysctl net.core.default_qdisc=fq
 PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
 ''')
