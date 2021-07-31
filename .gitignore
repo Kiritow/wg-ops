@@ -9,3 +9,4 @@ __pycache__/
 start.sh
 stop.sh
 restart.sh
+reload.sh

@@ -21,6 +21,8 @@ def write_tunnel_config(mode, listen_addr, remote_addr, password):
     return filename
 
 
+tmux_path = os.getenv("TMUX_PATH")
+
 config = load_config()
 if not config:
     logger.error("No valid config found.")
@@ -46,10 +48,10 @@ MTU = {}
 '''.format(config["ip"], config["prikey"], config["listen"], config["mtu"]))
 
     # Generate PostUp
-    f.write('''PostUp=/bin/tmux new-session -s tunnel -d 'watch -n 1 --color WG_COLOR_MODE=always wg'
+    f.write('''PostUp={} new-session -s tunnel -d 'watch -n 1 --color WG_COLOR_MODE=always wg'
 PostUp=sysctl net.core.default_qdisc=fq
 PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
-''')
+'''.format(tmux_path))
 
     if op_mode in ("s", "m"):
         f.write("PostUp=sysctl net.ipv4.ip_forward=1\n")
@@ -62,29 +64,29 @@ PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
         if info["speeder"]["enable"]:
             # WG --> Speeder --> RawTunnel
             speeder = info["speeder"]
-            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(path_speeder, speeder["port"], info["port"], speeder["ratio"]))
+            f.write('''PostUp={} new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(tmux_path, path_speeder, speeder["port"], info["port"], speeder["ratio"]))
 
         filename = write_tunnel_config("c", "127.0.0.1:{}".format(info["port"]), info["remote"], info["password"])
         filepath = os.path.join(current_dir, "local", "tunnel", filename)
-        f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+        f.write('''PostUp={} new-window -t tunnel -d '{} --conf-file {}' \n'''.format(tmux_path, path_tunnel, filepath))
 
     for info in udp_servers:
         if info["speeder"]["enable"]:
             # RawTunnel --> Speeder --> WG
             speeder = info["speeder"]
-            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(path_speeder, speeder["port"], config["listen"], speeder["ratio"]))
+            f.write('''PostUp={} new-window -t tunnel -d '{} -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0' \n'''.format(tmux_path, path_speeder, speeder["port"], config["listen"], speeder["ratio"]))
 
             filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(speeder["port"]), info["password"])
             filepath = os.path.join(current_dir, "local", "tunnel", filename)
-            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+            f.write('''PostUp={} new-window -t tunnel -d '{} --conf-file {}' \n'''.format(tmux_path, path_tunnel, filepath))
         else:
             # RawTunnel --> WG
             filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(config["listen"]), info["password"])
             filepath = os.path.join(current_dir, "local", "tunnel", filename)
-            f.write('''PostUp=/bin/tmux new-window -t tunnel -d '{} --conf-file {}' \n'''.format(path_tunnel, filepath))
+            f.write('''PostUp={} new-window -t tunnel -d '{} --conf-file {}' \n'''.format(tmux_path, path_tunnel, filepath))
 
     # Generate PostDown
-    f.write("PostDown=/bin/tmux kill-session -t tunnel\n")
+    f.write("PostDown={} kill-session -t tunnel\n".format(tmux_path))
 
     for info in config["peers"]:
         f.write('''
@@ -131,6 +133,14 @@ set -x
 ./stop.sh
 ./start.sh
 ''')
+
+logger.info("Generate reload script...")
+with open("reload.sh", "w", encoding='utf-8') as f:
+    f.write('''#!/bin/bash
+set -x
+sudo cp local/{}.conf /etc/wireguard/
+sudo wg syncconf {} <(wg-quick strip {})
+'''.format(config["interface"], config["interface"], config["interface"]))
 
 
 logger.info('''[Done] Config generated. Before you run start.sh, besure to:
