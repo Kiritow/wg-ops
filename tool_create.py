@@ -24,7 +24,8 @@ if op_mode not in ("c", "s", "m"):
 
 udp2raw_config = {
     "server": [],
-    "client": []
+    "client": [],
+    "demuxer": [],  # w2u
 }
 
 if op_mode in ("s", "m"):
@@ -113,12 +114,37 @@ if op_mode in ("c", "m"):
                 "enable": False
             }
 
-        udp2raw_config["client"].append({
-            "remote": udp_server_address,
-            "password": udp_server_password,
-            "port": 29100 + len(udp2raw_config["client"]),
-            "speeder": speeder_info
-        })
+        is_enable_balance = input("Enable Load Balance? [y/N]: ").strip()
+        if is_enable_balance and is_enable_balance.lower() in ('y', 'yes'):
+            balance_count = input("Enter Balance Underlay Connection counts (default to 10): ").strip() or "10"
+            balance_count = int(balance_count)
+
+            default_balancer_port = 29000 + len(udp2raw_config["demuxer"])
+            balancer_port = input("Enter Balancer Listen Port (default to {}): ".format(default_balancer_port)).strip() or default_balancer_port
+            balancer_port = int(balancer_port)
+
+            udp2raw_config["demuxer"].append({
+                "port": balancer_port,
+                "forward": 29100 + len(udp2raw_config["client"]),
+                "size": balance_count
+            })
+
+            for i in range(balance_count):
+                udp2raw_config["client"].append({
+                    "remote": udp_server_address,
+                    "password": udp_server_password,
+                    "port": 29100 + len(udp2raw_config["client"]),
+                    "speeder": speeder_info,
+                    "balanced": True
+                })
+        else:
+            udp2raw_config["client"].append({
+                "remote": udp_server_address,
+                "password": udp_server_password,
+                "port": 29100 + len(udp2raw_config["client"]),
+                "speeder": speeder_info,
+                "balanced": False
+            })
 
         if not input("Add more udp2raw client? (Keep empty to finish)").strip():
             break
