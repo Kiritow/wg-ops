@@ -2,13 +2,15 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3 tmux
+sudo apt install -y curl wireguard python3 tmux build-essential
 
 mkdir -p local
 mkdir -p local/tunnel
 
 mkdir -p bin
 cd bin
+
+gcc -O3 -o w2u ../w2u.c
 
 rm -rf wg-op-binary
 git clone https://gitee.com/kiritow/wg-op-binary

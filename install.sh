@@ -2,13 +2,15 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3 tmux
+sudo apt install -y curl wireguard python3 tmux build-essential
 
 mkdir -p local
 mkdir -p local/tunnel
 
 mkdir -p bin
 cd bin
+
+gcc -O3 -o w2u ../w2u.c
 
 curl -vL https://github.com/wangyu-/udp2raw-tunnel/releases/download/20200818.0/udp2raw_binaries.tar.gz -o udp2raw.tgz
 tar -xvzf udp2raw.tgz udp2raw_amd64

@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-// WireGuard ---> W2U --> Internet
+// WireGuard ---> W2U --> udp2raw
 int main(int argc, char* argv[])
 {
     int ret, flags;

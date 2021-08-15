@@ -16,6 +16,7 @@ def write_tunnel_config(mode, listen_addr, remote_addr, password):
 -r {}
 -k {}
 --raw-mode faketcp
+--fix-gro
 -a
 '''.format(mode, listen_addr, remote_addr, password))
     return filename

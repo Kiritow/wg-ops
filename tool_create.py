@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from tool_common import load_config, save_config, SimpleLogger, json_to_base64
+from tool_common import load_config, save_config, json_to_base64
 
 
 config = load_config()
