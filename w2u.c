@@ -118,27 +118,29 @@ int main(int argc, char* argv[])
 
         for (int i=0;i<nfds; i++)
         {
-            if (events[i].data.fd == listener) 
+            if (events[i].data.fd == listener)
             {
-                int nsize = recvfrom(listener, buffer, sizeof(buffer), 0, NULL, NULL);
-
-                if (nsize < 0) {
-                    perror("recvfrom");
-                } else {
+                int nsize;
+                while((nsize = recvfrom(listener, buffer, sizeof(buffer), 0, NULL, NULL)) > 0) {
                     sendto(sender, buffer, nsize, 0, (const struct sockaddr*)(addrTargets + rrOffset), sizeof(struct sockaddr_in));
                     if (++rrOffset >= PORT_UR_SIZE) {
                         rrOffset = 0;
                     }
                 }
+
+                if (nsize < 0 && errno != EAGAIN) {
+                    perror("recvfrom: ");
+                }
             }
             else if (events[i].data.fd == sender)
             {
-                int nsize = recvfrom(sender, buffer, sizeof(buffer), 0, NULL, NULL);
-
-                if (nsize < 0) {
-                    perror("recvfrom");
-                } else {
+                int nsize;
+                while((nsize = recvfrom(sender, buffer, sizeof(buffer), 0, NULL, NULL)) > 0) {
                     sendto(listener, buffer, nsize, 0, (const struct sockaddr*)&addrWg, sizeof(struct sockaddr_in));
+                }
+
+                if (nsize < 0 && errno != EAGAIN) {
+                    perror("recvfrom: ");
                 }
             }
         }
