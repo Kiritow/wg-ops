@@ -77,11 +77,11 @@ int main(int argc, char* argv[])
     ep = epoll_create(1024);
     
     struct epoll_event ev1;
-    ev1.events = EPOLLIN;
+    ev1.events = EPOLLIN | EPOLLET;
     ev1.data.fd = listener;
 
     struct epoll_event ev2;
-    ev2.events = EPOLLIN;
+    ev2.events = EPOLLIN | EPOLLET;
     ev2.data.fd = sender;
 
     epoll_ctl(ep, EPOLL_CTL_ADD, listener, &ev1);
@@ -89,9 +89,27 @@ int main(int argc, char* argv[])
 
     struct epoll_event events[1024];
 
+    struct sockaddr_in* addrTargets = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in) * PORT_UR_SIZE);
+    memset(addrTargets, 0, sizeof(struct sockaddr_in) * PORT_UR_SIZE);
+    for(int i=0; i<PORT_UR_SIZE; i++) {
+        addrTargets[i].sin_family = AF_INET;
+        inet_pton(AF_INET, "127.0.0.1", &addrTargets[i].sin_addr);
+        addrTargets[i].sin_port = htons(PORT_UR_BEGIN + i);
+    }
+
+    struct sockaddr_in addrWg;
+    memset(&addrWg, 0, sizeof(addrWg));
+    addrWg.sin_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &addrWg.sin_addr);
+    addrWg.sin_port = htons(PORT_WG);
+
+    int rrOffset = 0;
+
+    char buffer[4096];
+
     while(1)
     {
-        int nfds = epoll_wait(ep, events, 1024, -1);
+        int nfds = epoll_wait(ep, events, sizeof(events), -1);
 
         if (nfds < 0) {
             perror("epoll_wait");
@@ -102,43 +120,26 @@ int main(int argc, char* argv[])
         {
             if (events[i].data.fd == listener) 
             {
-                struct sockaddr_in addr;
-                socklen_t alen = sizeof(addr);
-
-                char buffer[2048];
-                int nsize = recvfrom(listener, &buffer, 2048, 0, (struct sockaddr*)&addr, &alen);
+                int nsize = recvfrom(listener, buffer, sizeof(buffer), 0, NULL, NULL);
 
                 if (nsize < 0) {
                     perror("recvfrom");
                 } else {
-                    memset(&addr, 0, sizeof(addr));
-                    addr.sin_family = AF_INET;
-                    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-                    int randPort = PORT_UR_BEGIN + rand()%PORT_UR_SIZE;
-                    addr.sin_port = htons(randPort);
-                    sendto(sender, buffer, nsize, 0, (const struct sockaddr*)&addr, sizeof(addr));
+                    sendto(sender, buffer, nsize, 0, (const struct sockaddr*)(addrTargets + rrOffset), sizeof(struct sockaddr_in));
+                    if (++rrOffset >= PORT_UR_SIZE) {
+                        rrOffset = 0;
+                    }
                 }
             }
-            else if (events[i].data.fd == sender) 
+            else if (events[i].data.fd == sender)
             {
-                struct sockaddr_in addr;
-                socklen_t alen = sizeof(addr);
+                int nsize = recvfrom(sender, buffer, sizeof(buffer), 0, NULL, NULL);
 
-                char buffer[2048];
-                int nsize = recvfrom(sender, &buffer, 2048, 0, (struct sockaddr*)&addr, &alen);
-
-                if (nsize < 0)
-                {
+                if (nsize < 0) {
                     perror("recvfrom");
+                } else {
+                    sendto(listener, buffer, nsize, 0, (const struct sockaddr*)&addrWg, sizeof(struct sockaddr_in));
                 }
-                else
-                {
-                    memset(&addr, 0, sizeof(addr));
-                    addr.sin_family = AF_INET;
-                    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-                    addr.sin_port = htons(PORT_WG);
-                    sendto(listener, buffer, nsize, 0, (const struct sockaddr*)&addr, sizeof(addr));
-                }   
             }
         }
     }
