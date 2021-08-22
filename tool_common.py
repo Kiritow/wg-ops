@@ -4,6 +4,8 @@ import json
 import traceback
 import base64
 import hashlib
+import random
+import string
 
 
 # Constants
@@ -76,3 +78,7 @@ def base64_to_json(content):
 
 def get_sha256(content):
     return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+
+def get_randpass(length):
+    return ''.join(random.choices(string.ascii_uppercase, k=2) + random.choices(string.ascii_lowercase + string.ascii_uppercase + string.digits, k=length - 2))

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from tool_common import load_config, save_config, json_to_base64, get_sha256
+from tool_common import load_config, save_config, json_to_base64, get_sha256, get_randpass
 from tool_common import WGOP_LB_PBEGIN, WGOP_UC_PBEGIN, WGOP_USPEEDER_C_PBEGIN, WGOP_USPEEDER_S_PBEGIN
 
 
@@ -105,10 +105,11 @@ if op_mode in ("s", "m"):
             break
 
         while True:
-            udp_server_password = getpass.getpass('Tunnel Password: ').strip()
+            udp_server_password = getpass.getpass('Tunnel Password: (Keep empty to generate one)').strip()
             if not udp_server_password:
-                print("For security reasons, a udp2raw tunnel password is required. Try again.")
-                continue
+                udp_server_password = get_randpass(15)
+                print("Generated Password: {}".format(udp_server_password))
+                break
 
             if udp_server_password != getpass.getpass('Confirm Tunnel Password: ').strip():
                 print("Password mismatch. Try again.")
