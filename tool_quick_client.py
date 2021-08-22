@@ -82,7 +82,8 @@ config = {
     }],
     "udp2raw": {
         "client": [paste_config["udp2raw_client"]],
-        "server": []
+        "server": [],
+        "demuxer": []
     }
 }
 
