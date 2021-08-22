@@ -29,3 +29,5 @@ For a forwarding server, the following commands might be needed:
 ```
 ufw route allow in on wg0 out on wg0
 ```
+
+Reload script only reload wireguard configs. Changes made to tunnels will not work without restart.
