@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from wgop_common import load_config, save_config, json_to_base64, get_sha256, get_randpass
-from wgop_common import WGOP_LB_PBEGIN, WGOP_UC_PBEGIN, WGOP_USPEEDER_C_PBEGIN, WGOP_USPEEDER_S_PBEGIN
+from wgop_common import load_config, save_config, get_randpass, get_quick_config
+from wgop_common import UConfigController
 
 
 config = load_config()
@@ -22,70 +22,6 @@ if not op_mode:
 if op_mode not in ("c", "s", "m"):
     print("Invalid node mode. Please try again.")
     exit(1)
-
-
-class UConfigController:
-    next_port_speeder_server = WGOP_USPEEDER_S_PBEGIN
-    next_port_speeder_client = WGOP_USPEEDER_C_PBEGIN
-    next_port_balancer = WGOP_LB_PBEGIN
-    next_port_client = WGOP_UC_PBEGIN
-    udp2raw_config = {
-        "server": [],
-        "client": []
-    }
-
-    def add_server(self, port_required, password, speeder_info):
-        self.udp2raw_config["server"].append({
-            "port": port_required,
-            "password": get_sha256(password),
-            "speeder": speeder_info
-        })
-
-    def add_client(self, remote, password, port, speeder_info, demuxer_info):
-        if port is None:
-            port = self.next_port_client
-            if demuxer_info:
-                self.next_port_client += demuxer_info["size"]
-            else:
-                self.next_port_client += 1
-
-        self.udp2raw_config["client"].append({
-            "remote": remote,
-            "password": get_sha256(password),
-            "port": port,
-            "speeder": speeder_info,
-            "demuxer": demuxer_info
-        })
-
-    def new_server_speeder(self, port, ratio):
-        if port is None:
-            port = self.next_port_speeder_server
-            self.next_port_speeder_server += 1
-
-        return {
-            "port": port,
-            "ratio": ratio
-        }
-
-    def new_client_speeder(self, port, ratio):
-        if port is None:
-            port = self.next_port_speeder_client
-            self.next_port_speeder_client += 1
-
-        return {
-            "port": port,
-            "ratio": ratio
-        }
-
-    def new_demuxer(self, port, size):
-        if port is None:
-            port = self.next_port_balancer
-            self.next_port_balancer += 1
-
-        return {
-            "port": port,
-            "size": size
-        }
 
 
 ucontrol = UConfigController()
@@ -228,25 +164,10 @@ save_config(config)
 
 # Display Quick Config
 if op_mode in ("s", "m"):
-    if ifip.endswith(".1"):
-        suggest_allowed = "{}.0/24".format('.'.join(ifip.split('.')[:-1]))
-    else:
-        suggest_allowed = ifip
-
     print("===== Quick Import =====")
-    for server_info in ucontrol.udp2raw_config["server"]:
-        speeder_info = server_info["speeder"]
-
-        quick_config = {
-            "pubkey": wg_pubk,
-            "allowed": suggest_allowed,
-            "remote": "{}:{}".format(wg_public_ip, server_info["port"]),
-            "password": server_info["password"],
-            "ratio": speeder_info["ratio"] if speeder_info else ""
-        }
-
-        print("Connect to this server via tunnel at port {}: (credential included) \n".format(server_info["port"]))
-        print("#QCS#{}\n".format(json_to_base64(quick_config)))
+    quicks = get_quick_config(config, wg_public_ip)
+    for quick_info in quicks:
+        print("Connect to this server via tunnel at port {}: (credential included)\n{}\n".format(quick_info["port"], quick_info["qcs"]))
 
 
 # Configure Peer

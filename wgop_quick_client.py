@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
-import getpass
 from wgop_common import load_config, save_config, base64_to_json
+from wgop_common import UConfigController
 
 
 config = load_config()
@@ -22,6 +22,7 @@ while True:
         continue
     break
 
+ucontrol = UConfigController()
 
 paste_config = {}
 while True:
@@ -31,27 +32,39 @@ while True:
         continue
 
     paste_config = base64_to_json(paste_temp.replace("#QCS#", ""))
-    print("Config imported. Server: {} with public key: {}".format(paste_config["udp2raw_client"]["remote"], paste_config["server_pubkey"]))
+    print("Config imported. Server: {} with public key: {}{}".format(
+        paste_config["remote"], paste_config["pubkey"],
+        " and speeders enabled" if paste_config["ratio"] else ""))
     break
 
 
-while True:
-    udp_server_password = getpass.getpass('Tunnel Password: ').strip()
-    if not udp_server_password:
-        print("For security reasons, a udp2raw tunnel password is required. Try again.")
-        continue
-
-    if udp_server_password != getpass.getpass('Confirm Tunnel Password: ').strip():
-        print("Password mismatch. Try again.")
-        continue
-    break
-paste_config["udp2raw_client"]["password"] = udp_server_password
+if paste_config["ratio"]:
+    speeder_info = ucontrol.new_client_speeder(None, paste_config["ratio"])
+else:
+    speeder_info = None
 
 
-if paste_config["suggest_allowed"]:
-    peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24, default to {})\n> ".format(paste_config["suggest_allowed"])).strip()
+is_enable_balance = input("Enable Load Balance? [y/N]: ").strip()
+if is_enable_balance and is_enable_balance.lower() in ('y', 'yes'):
+    balance_count = input("Enter Balance Underlay Connection counts (default to 10): ").strip() or "10"
+    balance_count = int(balance_count)
+
+    if balance_count > 1:
+        balancer_info = ucontrol.new_demuxer(None, balance_count)
+    else:
+        print("[WARN] Only one target, skipped balancer creation.")
+        balancer_info = None
+else:
+    balancer_info = None
+
+
+ucontrol.add_client(paste_config["remote"], paste_config["password"], None, speeder_info, balancer_info, no_hash=True)
+
+
+if paste_config["allowed"]:
+    peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24, default to {})\n> ".format(paste_config["allowed"])).strip()
     if not peer_allowed:
-        peer_allowed = paste_config["suggest_allowed"]
+        peer_allowed = paste_config["allowed"]
 else:
     while True:
         peer_allowed = input("Enter WireGuard Peer AllowedIPs (CIDR, Example: 10.0.0.0/24)\n> ").strip()
@@ -75,16 +88,12 @@ config = {
     "ip": ifip,
     "listen": listen_port,
     "peers": [{
-        "pubkey": paste_config["server_pubkey"],
+        "pubkey": paste_config["pubkey"],
         "allowed": peer_allowed,
         "endpoint": "1",
         "keepalive": peer_keepalive
     }],
-    "udp2raw": {
-        "client": [paste_config["udp2raw_client"]],
-        "server": [],
-        "demuxer": []
-    }
+    "udp2raw": ucontrol.udp2raw_config
 }
 
 print("Saving config...")
@@ -103,4 +112,3 @@ print('''
 =======================================
 
 '''.format(os.getenv("WG_MYPUBK"), ifip))
-

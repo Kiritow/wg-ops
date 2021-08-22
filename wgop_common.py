@@ -82,3 +82,94 @@ def get_sha256(content):
 
 def get_randpass(length):
     return ''.join(random.choices(string.ascii_uppercase, k=2) + random.choices(string.ascii_lowercase + string.ascii_uppercase + string.digits, k=length - 2))
+
+
+def get_quick_config(config, server_public_ip):
+    if config["ip"].endswith(".1"):
+        suggest_allowed = "{}.0/24".format('.'.join(config["ip"].split('.')[:-1]))
+    else:
+        suggest_allowed = config["ip"]
+
+    quicks = []
+
+    for server_info in config["udp2raw"]["server"]:
+        speeder_info = server_info["speeder"]
+
+        quick_config = {
+            "pubkey": config["pubkey"],
+            "allowed": suggest_allowed,
+            "remote": "{}:{}".format(server_public_ip, server_info["port"]),
+            "password": server_info["password"],
+            "ratio": speeder_info["ratio"] if speeder_info else None
+        }
+
+        quicks.append({
+            "port": server_info["port"],
+            "qcs": "#QCS#{}".format(json_to_base64(quick_config))
+        })
+
+    return quicks
+
+
+class UConfigController:
+    next_port_speeder_server = WGOP_USPEEDER_S_PBEGIN
+    next_port_speeder_client = WGOP_USPEEDER_C_PBEGIN
+    next_port_balancer = WGOP_LB_PBEGIN
+    next_port_client = WGOP_UC_PBEGIN
+    udp2raw_config = {
+        "server": [],
+        "client": []
+    }
+
+    def add_server(self, port_required, password, speeder_info):
+        self.udp2raw_config["server"].append({
+            "port": port_required,
+            "password": get_sha256(password),
+            "speeder": speeder_info
+        })
+
+    def add_client(self, remote, password, port, speeder_info, demuxer_info, no_hash=False):
+        if port is None:
+            port = self.next_port_client
+            if demuxer_info:
+                self.next_port_client += demuxer_info["size"]
+            else:
+                self.next_port_client += 1
+
+        self.udp2raw_config["client"].append({
+            "remote": remote,
+            "password": password if no_hash else get_sha256(password),
+            "port": port,
+            "speeder": speeder_info,
+            "demuxer": demuxer_info
+        })
+
+    def new_server_speeder(self, port, ratio):
+        if port is None:
+            port = self.next_port_speeder_server
+            self.next_port_speeder_server += 1
+
+        return {
+            "port": port,
+            "ratio": ratio
+        }
+
+    def new_client_speeder(self, port, ratio):
+        if port is None:
+            port = self.next_port_speeder_client
+            self.next_port_speeder_client += 1
+
+        return {
+            "port": port,
+            "ratio": ratio
+        }
+
+    def new_demuxer(self, port, size):
+        if port is None:
+            port = self.next_port_balancer
+            self.next_port_balancer += 1
+
+        return {
+            "port": port,
+            "size": size
+        }
