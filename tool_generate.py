@@ -156,6 +156,9 @@ sudo cp local/{}.conf /etc/wireguard/
 sudo -- bash -c "wg syncconf {} <(wg-quick strip {})"
 '''.format(config["interface"], config["interface"], config["interface"]))
 
+    for info in config["peers"]:
+        f.write("sudo ip -4 route add {} dev {}\n".format(info["allowed"]), config["interface"])
+
 
 logger.info('''[Done] Config generated. Before you run start.sh, besure to:
 1. Disable SSH Server password login.
