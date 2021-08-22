@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from tool_common import load_config, save_config, json_to_base64
+from tool_common import load_config, save_config, json_to_base64, get_sha256
+from tool_common import WGOP_LB_PBEGIN, WGOP_UC_PBEGIN, WGOP_USPEEDER_C_PBEGIN, WGOP_USPEEDER_S_PBEGIN
 
 
 config = load_config()
@@ -22,17 +23,79 @@ if op_mode not in ("c", "s", "m"):
     print("Invalid node mode. Please try again.")
     exit(1)
 
-udp2raw_config = {
-    "server": [],
-    "client": [],
-    "demuxer": [],  # w2u
-}
+
+class UConfigController:
+    next_port_speeder_server = WGOP_USPEEDER_S_PBEGIN
+    next_port_speeder_client = WGOP_USPEEDER_C_PBEGIN
+    next_port_balancer = WGOP_LB_PBEGIN
+    next_port_client = WGOP_UC_PBEGIN
+    udp2raw_config = {
+        "server": [],
+        "client": []
+    }
+
+    def add_server(self, port_required, password, speeder_info):
+        self.udp2raw_config["server"].append({
+            "port": port_required,
+            "password": get_sha256(password),
+            "speeder": speeder_info
+        })
+
+    def add_client(self, remote, password, port, speeder_info, demuxer_info):
+        if port is None:
+            port = self.next_port_client
+            if demuxer_info:
+                self.next_port_client += demuxer_info["size"]
+            else:
+                self.next_port_client += 1
+
+        self.udp2raw_config["client"].append({
+            "remote": remote,
+            "password": get_sha256(password),
+            "port": port,
+            "speeder": speeder_info,
+            "demuxer": demuxer_info
+        })
+
+    def new_server_speeder(self, port, ratio):
+        if port is None:
+            port = self.next_port_speeder_server
+            self.next_port_speeder_server += 1
+
+        return {
+            "port": port,
+            "ratio": ratio
+        }
+
+    def new_client_speeder(self, port, ratio):
+        if port is None:
+            port = self.next_port_speeder_client
+            self.next_port_speeder_client += 1
+
+        return {
+            "port": port,
+            "ratio": ratio
+        }
+
+    def new_demuxer(self, port, size):
+        if port is None:
+            port = self.next_port_balancer
+            self.next_port_balancer += 1
+
+        return {
+            "port": port,
+            "size": size
+        }
+
+
+ucontrol = UConfigController()
+
 
 if op_mode in ("s", "m"):
     print("====== Configuring udp2raw server ======")
 
     while True:
-        print("====== Adding UDP2RAW Server {} ======".format(len(udp2raw_config["server"]) + 1))
+        print("====== Adding UDP2RAW Server #{} ======".format(len(ucontrol.udp2raw_config["server"]) + 1))
 
         while True:
             udp_server_port = input("Please select an Internet-Facing port for incoming udp2raw connection: ").strip()
@@ -56,21 +119,11 @@ if op_mode in ("s", "m"):
         is_enable_speeder = input("Enable UDP Speeder for this tunnel? [y/N]: ").strip()
         if is_enable_speeder and is_enable_speeder.lower() in ('y', 'yes'):
             speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip() or "20:10"
-            speeder_info = {
-                "enable": True,
-                "port": 27100 + len(udp2raw_config["server"]),
-                "ratio": speeder_ratio
-            }
+            speeder_info = ucontrol.new_server_speeder(None, speeder_ratio)
         else:
-            speeder_info = {
-                "enable": False
-            }
+            speeder_info = None
 
-        udp2raw_config["server"].append({
-            "port": udp_server_port,
-            "password": udp_server_password,
-            "speeder": speeder_info
-        })
+        ucontrol.add_server(udp_server_port, udp_server_password, speeder_info)
 
         if not input("Add more udp2raw server? (Keep empty to finish): ").strip():
             break
@@ -80,7 +133,7 @@ if op_mode in ("c", "m"):
     print("====== Configuring udp2raw client ======")
 
     while True:
-        print("====== Adding UDP2RAW Client {} ======".format(len(udp2raw_config["client"]) + 1))
+        print("====== Adding UDP2RAW Client {} ======".format(len(ucontrol.udp2raw_config["client"]) + 1))
 
         while True:
             udp_server_address = input("Please input remote node internet-facing udp2raw ip:port : ").strip()
@@ -104,47 +157,24 @@ if op_mode in ("c", "m"):
         is_enable_speeder = input("Enable UDP Speeder for this tunnel? [y/N]: ").strip()
         if is_enable_speeder and is_enable_speeder.lower() in ('y', 'yes'):
             speeder_ratio = input("Enter UDP Speeder Ratio (default to 20:10. Use 2:4 for gaming usage): ").strip() or "20:10"
-            speeder_info = {
-                "enable": True,
-                "port": 28100 + len(udp2raw_config["server"]),
-                "ratio": speeder_ratio
-            }
+            speeder_info = ucontrol.new_client_speeder(None, speeder_ratio)
         else:
-            speeder_info = {
-                "enable": False
-            }
+            speeder_info = None
 
         is_enable_balance = input("Enable Load Balance? [y/N]: ").strip()
         if is_enable_balance and is_enable_balance.lower() in ('y', 'yes'):
             balance_count = input("Enter Balance Underlay Connection counts (default to 10): ").strip() or "10"
             balance_count = int(balance_count)
 
-            default_balancer_port = 29000 + len(udp2raw_config["demuxer"])
-            balancer_port = input("Enter Balancer Listen Port (default to {}): ".format(default_balancer_port)).strip() or default_balancer_port
-            balancer_port = int(balancer_port)
-
-            udp2raw_config["demuxer"].append({
-                "port": balancer_port,
-                "forward": 29100 + len(udp2raw_config["client"]),
-                "size": balance_count
-            })
-
-            for i in range(balance_count):
-                udp2raw_config["client"].append({
-                    "remote": udp_server_address,
-                    "password": udp_server_password,
-                    "port": 29100 + len(udp2raw_config["client"]),
-                    "speeder": speeder_info,
-                    "balanced": True
-                })
+            if balance_count > 1:
+                balancer_info = ucontrol.new_demuxer(None, balance_count)
+            else:
+                print("[WARN] Only one target, skipped balancer creation.")
+                balancer_info = None
         else:
-            udp2raw_config["client"].append({
-                "remote": udp_server_address,
-                "password": udp_server_password,
-                "port": 29100 + len(udp2raw_config["client"]),
-                "speeder": speeder_info,
-                "balanced": False
-            })
+            balancer_info = None
+
+        ucontrol.add_client(udp_server_address, udp_server_password, None, speeder_info, balancer_info)
 
         if not input("Add more udp2raw client? (Keep empty to finish)").strip():
             break
@@ -190,11 +220,12 @@ config = {
     "ip": ifip,
     "listen": listen_port,
     "peers": [],
-    "udp2raw": udp2raw_config
+    "udp2raw": ucontrol.udp2raw_config
 }
 save_config(config)
 
 
+# Display Quick Config
 if op_mode in ("s", "m"):
     if ifip.endswith(".1"):
         suggest_allowed = "{}.0/24".format('.'.join(ifip.split('.')[:-1]))
@@ -202,24 +233,22 @@ if op_mode in ("s", "m"):
         suggest_allowed = ifip
 
     print("===== Quick Import =====")
-    for info in udp2raw_config["server"]:
-        target_quick_config = {
-            "udp2raw_client": {
-                "remote": "{}:{}".format(wg_public_ip, info["port"]),
-                "password": "",
-                "port": "29100",
-                "speeder": info["speeder"]
-            },
-            "server_pubkey": wg_pubk,
-            "suggest_allowed": suggest_allowed
+    for server_info in ucontrol.udp2raw_config["server"]:
+        speeder_info = server_info["speeder"]
+
+        quick_config = {
+            "pubkey": wg_pubk,
+            "allowed": suggest_allowed,
+            "remote": "{}:{}".format(wg_public_ip, server_info["port"]),
+            "password": server_info["password"],
+            "ratio": speeder_info["ratio"] if speeder_info else ""
         }
 
-        print("Connect to this server via tunnel at port {}: (credential excluded) \n".format(info["port"]))
-        print("#QCS#{}\n".format(json_to_base64(target_quick_config)))
+        print("Connect to this server via tunnel at port {}: (credential included) \n".format(server_info["port"]))
+        print("#QCS#{}\n".format(json_to_base64(quick_config)))
 
 
 # Configure Peer
-
 while True:
     print("====== Adding Peer {} ======".format(len(config["peers"]) + 1))
     while True:
@@ -235,10 +264,16 @@ while True:
             continue
         break
 
-    if config["udp2raw"]["client"]:
+    if ucontrol.udp2raw_config["client"]:
         print(">>> Choose from following udp2raw clients <<<")
-        for index, client_info in enumerate(config["udp2raw"]["client"]):
-            print("[{}] UDP2Raw Tunnel to Remote {}".format(index + 1, client_info["remote"]))
+        for index, client_info in enumerate(ucontrol.udp2raw_config["client"]):
+            speeder_info = client_info["speeder"]
+            balancer_info = client_info["demuxer"]
+
+            print("[{}] {} {} {}".format(index + 1, client_info["remote"], 
+                "SpeederRatio: {}".format(speeder_info["ratio"]) if speeder_info else "",
+                "Load-Balanced over {} tunnels".format(balancer_info["size"]) if balancer_info else ""
+            ))
 
         peer_endpoint = input("Enter WireGuard Peer Endpoint (ID from list, default to 1): ").strip() or "1"
         peer_keepalive = input("Enter WireGuard Peer Keep Alive seconds (default to 30): ").strip() or "30"

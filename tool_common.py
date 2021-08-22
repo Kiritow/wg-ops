@@ -3,7 +3,14 @@ import logging
 import json
 import traceback
 import base64
+import hashlib
 
+
+# Constants
+WGOP_USPEEDER_S_PBEGIN = 27100
+WGOP_USPEEDER_C_PBEGIN = 28100
+WGOP_LB_PBEGIN = 29000
+WGOP_UC_PBEGIN = 29100
 
 class SimpleLogger(object):
     def __init__(self, name=None, filename=None, fileonly=False,
@@ -65,3 +72,7 @@ def json_to_base64(content):
 
 def base64_to_json(content):
     return json.loads(base64.b64decode(content).decode('utf-8'))
+
+
+def get_sha256(content):
+    return hashlib.sha256(content).hexdigest()
