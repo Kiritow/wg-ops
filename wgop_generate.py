@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import uuid
-from tool_common import load_config, SimpleLogger
+from wgop_common import load_config, SimpleLogger
 
 
 logger = SimpleLogger()

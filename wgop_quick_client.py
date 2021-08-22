@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from tool_common import load_config, save_config, base64_to_json
+from wgop_common import load_config, save_config, base64_to_json
 
 
 config = load_config()

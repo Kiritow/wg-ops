@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import getpass
-from tool_common import load_config, save_config, json_to_base64, get_sha256, get_randpass
-from tool_common import WGOP_LB_PBEGIN, WGOP_UC_PBEGIN, WGOP_USPEEDER_C_PBEGIN, WGOP_USPEEDER_S_PBEGIN
+from wgop_common import load_config, save_config, json_to_base64, get_sha256, get_randpass
+from wgop_common import WGOP_LB_PBEGIN, WGOP_UC_PBEGIN, WGOP_USPEEDER_C_PBEGIN, WGOP_USPEEDER_S_PBEGIN
 
 
 config = load_config()
