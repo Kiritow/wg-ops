@@ -75,4 +75,4 @@ def base64_to_json(content):
 
 
 def get_sha256(content):
-    return hashlib.sha256(content).hexdigest()
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()

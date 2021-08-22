@@ -37,7 +37,6 @@ if "version" not in config or int(config["version"]) < 1:
 op_mode = config["mode"]
 udp_clients = config["udp2raw"]["client"]
 udp_servers = config["udp2raw"]["server"]
-udp_demuxer = config["udp2raw"]["demuxer"]
 
 
 logger.info("Generating WireGuard config...")
@@ -59,65 +58,93 @@ PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
         f.write("PostUp=sysctl net.ipv4.ip_forward=1\n")
 
     current_dir = os.getcwd()
-    path_tunnel = os.path.join(current_dir, "bin", "udp2raw_amd64")
-    path_speeder = os.path.join(current_dir, "bin", "speederv2_amd64")
-    path_demuxer = os.path.join(current_dir, "bin", "w2u")
+    bin_tunnel = os.path.join(current_dir, "bin", "udp2raw_amd64")
+    bin_speeder = os.path.join(current_dir, "bin", "speederv2_amd64")
+    bin_demuxer = os.path.join(current_dir, "bin", "w2u")
 
+    cache_nb_config = []
     cache_config = []
-    for info in udp_clients:
-        if info["speeder"]["enable"]:
-            # WG --> Speeder --> RawTunnel
-            speeder = info["speeder"]
-            cache_config.append("PostUp={} new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0'".format(tmux_path, path_speeder, speeder["port"], info["port"], speeder["ratio"]))
+    for client_info in udp_clients:
+        speeder_info = client_info["speeder"]
+        balancer_info = client_info["demuxer"]
 
-        filename = write_tunnel_config("c", "127.0.0.1:{}".format(info["port"]), info["remote"], info["password"])
-        filepath = os.path.join(current_dir, "local", "tunnel", filename)
-        cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, path_tunnel, filepath))
+        if balancer_info:
+            # ... => Balancer => Tunnels
+            cache_nb_config.append("PostUp={} new-window -t tunnel -d '{} -f {} -l {} -t {} -s {}'".format(tmux_path, bin_demuxer, config["listen"], balancer_info["port"], client_info["port"], balancer_info["size"]))
 
-    for info in udp_demuxer:
-        cache_config.append("PostUp={} new-window -t tunnel -d '{} -f {} -l {} -t {} -s {}'".format(tmux_path, path_demuxer, config["listen"], info["port"], info["forward"], info["size"]))
+        if speeder_info:
+            if balancer_info:
+                # WG => Speeder => Balancer => Tunnels
+                cache_config.append("PostUp={} new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0'".format(tmux_path, bin_speeder, speeder_info["port"], balancer_info["port"], speeder_info["ratio"]))
+            else:
+                # WG => Speeder => Tunnel
+                cache_config.append("PostUp={} new-window -t tunnel -d '{} -c -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0'".format(tmux_path, bin_speeder, speeder_info["port"], client_info["port"], speeder_info["ratio"]))
 
-    for info in udp_servers:
-        if info["speeder"]["enable"]:
-            # RawTunnel --> Speeder --> WG
-            speeder = info["speeder"]
-            cache_config.append("PostUp={} new-window -t tunnel -d '{} -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0'".format(tmux_path, path_speeder, speeder["port"], config["listen"], speeder["ratio"]))
-
-            filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(speeder["port"]), info["password"])
-            filepath = os.path.join(current_dir, "local", "tunnel", filename)
-            cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, path_tunnel, filepath))
+        if balancer_info:
+            # Generate multiple tunnels
+            for offset in range(balancer_info["size"]):
+                config_filename = write_tunnel_config("c", "127.0.0.1:{}".format(client_info["port"] + offset), client_info["remote"], client_info["password"])
+                filepath = os.path.join(current_dir, "local", "tunnel", config_filename)
+                cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, bin_tunnel, filepath))
         else:
-            # RawTunnel --> WG
-            filename = write_tunnel_config("s", "0.0.0.0:{}".format(info["port"]), "127.0.0.1:{}".format(config["listen"]), info["password"])
-            filepath = os.path.join(current_dir, "local", "tunnel", filename)
-            cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, path_tunnel, filepath))
+            config_filename = write_tunnel_config("c", "127.0.0.1:{}".format(client_info["port"]), client_info["remote"], client_info["password"])
+            filepath = os.path.join(current_dir, "local", "tunnel", config_filename)
+            cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, bin_tunnel, filepath))
 
-    # Remove last sleep
+    for server_info in udp_servers:
+        speeder_info = client_info["speeder"]
+
+        if speeder_info:
+            # RawTunnel => Speeder => WG
+            speeder = server_info["speeder"]
+            cache_config.append("PostUp={} new-window -t tunnel -d '{} -s -l127.0.0.1:{} -r 127.0.0.1:{} -f{} --mode 0'".format(tmux_path, bin_speeder, speeder["port"], config["listen"], speeder["ratio"]))
+
+            config_filename = write_tunnel_config("s", "0.0.0.0:{}".format(server_info["port"]), "127.0.0.1:{}".format(speeder["port"]), server_info["password"])
+            filepath = os.path.join(current_dir, "local", "tunnel", config_filename)
+            cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, bin_tunnel, filepath))
+        else:
+            # RawTunnel => WG
+            config_filename = write_tunnel_config("s", "0.0.0.0:{}".format(server_info["port"]), "127.0.0.1:{}".format(config["listen"]), server_info["password"])
+            filepath = os.path.join(current_dir, "local", "tunnel", config_filename)
+            cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, bin_tunnel, filepath))
+
+    # Add sleep interval
     if cache_config:
         for i in range(len(cache_config) - 1):
             cache_config[i] = "{}; sleep 2".format(cache_config[i])
         cache_config.append("")
         f.write('\n'.join(cache_config))
 
+    if cache_nb_config:
+        cache_nb_config.append("")
+        f.write('\n'.join(cache_nb_config))
+
     # Generate PostDown
     f.write("PostDown={} kill-session -t tunnel\n".format(tmux_path))
 
-    for info in config["peers"]:
+    for peer_info in config["peers"]:
         f.write('''
 [Peer]
 PublicKey = {}
 AllowedIPs = {}
-'''.format(info["pubkey"], info["allowed"]))
-        if info["endpoint"]:
-            udp_info = udp_clients[int(info["endpoint"]) - 1]
-            if udp_info["speeder"]["enable"]:
-                # WG --> Speeder
-                f.write("Endpoint = 127.0.0.1:{}\n".format(udp_info["speeder"]["port"]))
+'''.format(peer_info["pubkey"], peer_info["allowed"]))
+        if peer_info["endpoint"]:
+            client_info = udp_clients[int(peer_info["endpoint"]) - 1]
+            speeder_info = client_info["speeder"]
+            balancer_info = client_info["demuxer"]
+
+            if speeder_info:
+                # WG => Speeder => ...
+                f.write("Endpoint = 127.0.0.1:{}\n".format(speeder_info["port"]))
+            elif balancer_info:
+                # WG => Balancer => ...
+                f.write("Endpoint = 127.0.0.1:{}\n".format(balancer_info["port"]))
             else:
-                # WG --> Tunnel
-                f.write("Endpoint = 127.0.0.1:{}\n".format(udp_info["port"]))
-        if info["keepalive"]:
-            f.write("PersistentKeepalive = {}\n".format(info["keepalive"]))
+                # WG => ...
+                f.write("Endpoint = 127.0.0.1:{}\n".format(client_info["port"]))
+
+        if peer_info["keepalive"]:
+            f.write("PersistentKeepalive = {}\n".format(peer_info["keepalive"]))
 
 os.system("chmod 600 local/{}.conf".format(config["interface"]))
 
@@ -156,8 +183,8 @@ sudo cp local/{}.conf /etc/wireguard/
 sudo -- bash -c "wg syncconf {} <(wg-quick strip {})"
 '''.format(config["interface"], config["interface"], config["interface"]))
 
-    for info in config["peers"]:
-        f.write("sudo ip -4 route add {} dev {}\n".format(info["allowed"], config["interface"]))
+    for peer_info in config["peers"]:
+        f.write("sudo ip -4 route add {} dev {}\n".format(peer_info["allowed"], config["interface"]))
 
 
 logger.info('''[Done] Config generated. Before you run start.sh, besure to:
