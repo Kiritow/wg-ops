@@ -203,11 +203,14 @@ while True:
         peer_endpoint = ""
         peer_keepalive = ""
 
+    peer_name = input("Enter Peer name (optional): ").strip() or ""
+
     config["peers"].append({
         "pubkey": peer_pubk,
         "allowed": peer_allowed,
         "endpoint": peer_endpoint,
-        "keepalive": peer_keepalive
+        "keepalive": peer_keepalive,
+        "name": peer_name,
     })
 
     print("Saving config...")
