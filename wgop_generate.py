@@ -92,7 +92,7 @@ PostUp=sysctl net.ipv4.tcp_congestion_control=bbr
             cache_config.append("PostUp={} new-window -t tunnel -d '{} --conf-file {}'".format(tmux_path, bin_tunnel, filepath))
 
     for server_info in udp_servers:
-        speeder_info = client_info["speeder"]
+        speeder_info = server_info["speeder"]
 
         if speeder_info:
             # RawTunnel => Speeder => WG
