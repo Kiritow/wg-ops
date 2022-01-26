@@ -48,7 +48,8 @@ for line in content:
     elif line.startswith('#enable-forward'):
         results.append('PostUp=sysctl net.ipv4.ip_forward=1')
     elif line.startswith('#iptables-forward'):
-        results.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT')
+        results.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT'.format(wg_name))
+        gen_ctx['post_down'].append('PostDown=iptables -D FORWARD -i {} -j ACCEPT'.format(wg_name))
     elif line.startswith('#udp2raw-server'):
         parts = line.split(' ')[1:]
         tunnel_name = parts[0]
