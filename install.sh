@@ -35,7 +35,7 @@ VERIFIED_SPEEDER_HASH="3cf8f6c1e9baa530170368efb8a4bfcd6e75f88c2726ecbf2a75261dd
 LOCAL_SPEEDER_HASH=$(sha256sum bin/speederv2_amd64 | awk '{print $1}')
 
 VERIFIED_GOST_HASH="5434f730594d29b933087dcaf1ae680bee7077abd021c004f28287deccfe49b5"
-LOCAL_GOST_HASH=$(sha256sum bin/speederv2_amd64 | awk '{print $1}')
+LOCAL_GOST_HASH=$(sha256sum bin/gost | awk '{print $1}')
 
 if [ "$LOCAL_TUNNEL_HASH" == "$VERIFIED_TUNNEL_HASH" ]
 then
