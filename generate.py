@@ -66,6 +66,8 @@ class Parser:
             self.input_peer.append(current_peer)
     
     def compile_interface(self):
+        self.result_interface.append('[Interface]')
+
         # compile interface
         for line in self.input_interface:
             if line.startswith('ListenPort'):
