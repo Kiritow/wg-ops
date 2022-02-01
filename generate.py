@@ -1,196 +1,254 @@
 import os
 import sys
+import this
 import time
 import getopt
 
-
-opts, args = getopt.getopt(sys.argv[1:], 'k')
-
-filepath = args[0]
 
 path_udp2raw = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/udp2raw_amd64')
 path_w2u = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/w2u')
 path_gost = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/gost')
 
-filename = os.path.basename(filepath)
-wg_name = filename.split('.')[0]
 
-with open(filename, 'r') as f:
-    content = f.read().split('\n')
+class Parser:
+    def __init__(self):
+        # input parts
+        self.input_interface = []
+        self.input_peer = []
 
-gen_ctx = {
-    'tunnels': {},
-    'post_down': [],
-}
+        # output
+        self.result_interface = []
+        self.result_postup = []
+        self.result_postdown = []
+        self.result_peers = []
 
-results = []
+        # flags
+        self.flag_has_setup_tmux = False
+        self.flag_is_route_forward = False
 
-
-def add_tmux_session_once():
-    if 'has_setup_tmux' not in gen_ctx:
-        gen_ctx['has_setup_tmux'] = True
-        results.append('''PostUp=/usr/bin/tmux new-session -s tunnel-{} -d 'watch -n 1 --color WG_COLOR_MODE=always wg show {}' '''.format(wg_name, wg_name))
-
-for line in content:
-    if line.startswith('ListenPort'):
-        gen_ctx['wg_port'] = int(line.split('=')[1])
-    if line.startswith('MTU'):
-        gen_ctx['mtu_detected'] = True
-    if line.startswith('[Peer]'):
-        if 'peer_started' not in gen_ctx:
-            gen_ctx['peer_started'] = True
-            if 'mtu_detected' not in gen_ctx:
-                sys.stderr.write('[WARN] MTU not detected, using suggested mtu value (1280).\n')
-                results.append('MTU=1280')
-            if gen_ctx['post_down']:
-                results.extend(gen_ctx['post_down'])
-            if 'has_setup_tmux' in gen_ctx:
-                results.append('PostDown=sleep 1; /usr/bin/tmux kill-session -t tunnel-{}'.format(wg_name))
-
-    if not line.startswith('#'):
-        results.append(line)
-        continue
+        # vars
+        self.wg_name = '%i'
+        self.wg_port = 0
+        self.wg_mtu = 0
+        self.idx_tunnels = {}
     
-    if line.startswith('#enable-bbr'):
-        results.append('PostUp=sysctl net.core.default_qdisc=fq\nPostUp=sysctl net.ipv4.tcp_congestion_control=bbr')
-    elif line.startswith('#enable-forward'):
-        results.append('PostUp=sysctl net.ipv4.ip_forward=1')
-    elif line.startswith('#iptables-forward'):
-        results.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT'.format(wg_name))
-        gen_ctx['post_down'].append('PostDown=iptables -D FORWARD -i {} -j ACCEPT'.format(wg_name))
-    elif line.startswith('#udp2raw-server'):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_port = parts[1]
-        tunnel_passwd = parts[2]
+    def enable_tmux(self):
+        if not self.flag_has_setup_tmux:
+            self.flag_has_setup_tmux = True
+            self.result_postup.append('''PostUp=/usr/bin/tmux new-session -s tunnel-{} -d 'watch -n 1 --color WG_COLOR_MODE=always wg show {}' '''.format(self.wg_name, self.wg_name))
+            self.result_postdown.append('PostDown=sleep 1; /usr/bin/tmux kill-session -t tunnel-{}'.format(self.wg_name))
 
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
-            tunnel_port, gen_ctx['wg_port'], tunnel_passwd, tunnel_name
-        ))
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
-            wg_name, path_udp2raw, tunnel_name
-        ))
-        results.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
-    elif line.startswith('#udp2raw-client '):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_port = parts[1]
-        tunnel_remote = parts[2]
-        tunnel_passwd = parts[3]
-
-        gen_ctx['tunnels'][tunnel_name] = tunnel_port
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
-            tunnel_port, tunnel_remote, tunnel_passwd, tunnel_name
-        ))
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
-            wg_name, tunnel_name, path_udp2raw, tunnel_name
-        ))
-        results.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
-
-        gen_ctx['post_down'].append('''PostDown=/usr/bin/tmux send-keys -t {}-win C-c '''.format(tunnel_name))
-    elif line.startswith('#udp2raw-client-mux '):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_mux = int(parts[1])
-        tunnel_port = int(parts[2])
-        tunnel_remote = parts[3]
-        tunnel_passwd = parts[4]
-
-        gen_ctx['tunnels'][tunnel_name] = tunnel_port
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
-            wg_name, path_w2u, gen_ctx['wg_port'], tunnel_port, tunnel_port + 1, tunnel_mux
-        ))
-        for mux_idx in range(tunnel_mux):
-            results.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
-                tunnel_port + 1 + mux_idx, tunnel_remote, tunnel_passwd, tunnel_name, mux_idx
-            ))
-            results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2'''.format(
-                wg_name, tunnel_name, mux_idx, path_udp2raw, tunnel_name, mux_idx
-            ))
-            results.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}-{}.conf'''.format(tunnel_name, mux_idx))
-
-            gen_ctx['post_down'].append('''PostDown=/usr/bin/tmux send-keys -t {}-win-{} C-c '''.format(tunnel_name, mux_idx))
-
-    elif line.startswith('#gost-server '):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_port = parts[1]
-
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L=relay+tls://:{}/127.0.0.1:{}' '''.format(
-            wg_name, path_gost, tunnel_port, gen_ctx['wg_port']
-        ))
-    elif line.startswith('#gost-client '):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_port = parts[1]
-        tunnel_remote = parts[2]
-
-        gen_ctx['tunnels'][tunnel_name] = tunnel_port
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
-            wg_name, path_gost, tunnel_port, tunnel_remote
-        ))
-    elif line.startswith('#gost-client-mux '):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-        tunnel_mux = int(parts[1])
-        tunnel_port = int(parts[2])
-        tunnel_remote = parts[3]
-
-        gen_ctx['tunnels'][tunnel_name] = tunnel_port
-        add_tmux_session_once()
-
-        results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
-            wg_name, path_w2u, gen_ctx['wg_port'], tunnel_port, tunnel_port + 1, tunnel_mux
-        ))
-        for mux_idx in range(tunnel_mux):
-            results.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
-                wg_name, path_gost, tunnel_port + 1 + mux_idx, tunnel_remote
-            ))
-    elif line.startswith('#use-tunnel'):
-        parts = line.split(' ')[1:]
-        tunnel_name = parts[0]
-
-        tunnel_port = gen_ctx['tunnels'][tunnel_name]
-        results.append('Endpoint=127.0.0.1:{}'.format(tunnel_port))
-    elif line.startswith('#route'):
-        parts = line.split(' ')[1:]
-        route_target = parts[0]
-
-        if 'disable_table' not in gen_ctx:
-            gen_ctx['disable_table'] = True
-            results.insert(1, 'Table=off')
-        
-        # find last post-up
-        prev_postup = False
-        last_postup_idx = 0
-        for i in range(len(results)):
-            if results[i].startswith('PostUp='):
-                prev_postup = True
+    def parse(self, content):
+        # parse input
+        input_mode = ''
+        current_peer = []
+        for line in content:
+            if line.startswith('[Interface]'):
+                input_mode = 'interface'
                 continue
-            if prev_postup:
-                last_postup_idx = i
-                break
-        if not last_postup_idx:
-            results.append('PostUp=ip -4 route add {} dev wg0'.format(route_target))
-        else:
-            results.insert(last_postup_idx, 'PostUp=ip -4 route add {} dev wg0'.format(route_target))
+
+            if line.startswith('[Peer]'):
+                input_mode = 'peer'
+                if current_peer:
+                    self.input_peer.append(current_peer)
+                    current_peer = []
+                continue
+
+            if input_mode == 'interface':
+                self.input_interface.append(line)
+            elif input_mode == 'peer':
+                current_peer.append(line)
+            else:
+                sys.stderr.write('[WARN] Incorrect mode detected with line: {}\n'.format(line))
+
+        if current_peer:
+            self.input_peer.append(current_peer)
+    
+    def compile_interface(self):
+        # compile interface
+        for line in self.input_interface:
+            if line.startswith('ListenPort'):
+                self.wg_port = int(line.split('=')[1])
+            if line.startswith('MTU'):
+                self.wg_mtu = int(line.split('=')[1])
+
+            if not line.startswith('#'):
+                self.result_interface.append(line)
+                continue
+
+            if line.startswith('#enable-bbr'):
+                self.result_postup.append('PostUp=sysctl net.core.default_qdisc=fq\nPostUp=sysctl net.ipv4.tcp_congestion_control=bbr')
+            elif line.startswith('#enable-forward'):
+                self.result_postup.append('PostUp=sysctl net.ipv4.ip_forward=1')
+            elif line.startswith('#iptables-forward'):
+                self.result_postup.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT'.format(self.wg_name))
+                self.result_postdown.append('PostDown=iptables -D FORWARD -i {} -j ACCEPT'.format(self.wg_name))
+            elif line.startswith('#route-forward'):
+                self.flag_is_route_forward = True
+
+                parts = line.split(' ')[1:]
+                table_name = parts[0]
+
+                self.result_postup.append('PostUp=ip route add 0.0.0.0/0 dev {} table {}'.format(self.wg_name, table_name))
+                sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+            elif line.startswith('#udp2raw-server'):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+                tunnel_passwd = parts[2]
+
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
+                    tunnel_port, self.wg_port, tunnel_passwd, tunnel_name
+                ))
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
+                    self.wg_name, path_udp2raw, tunnel_name
+                ))
+                self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
+            elif line.startswith('#udp2raw-client '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+                tunnel_remote = parts[2]
+                tunnel_passwd = parts[3]
+
+                self.idx_tunnels[tunnel_name] = tunnel_port
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
+                    tunnel_port, tunnel_remote, tunnel_passwd, tunnel_name
+                ))
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
+                    self.wg_name, tunnel_name, path_udp2raw, tunnel_name
+                ))
+                self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
+                self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win C-c '''.format(tunnel_name))
+            elif line.startswith('#udp2raw-client-mux '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_mux = int(parts[1])
+                tunnel_port = int(parts[2])
+                tunnel_remote = parts[3]
+                tunnel_passwd = parts[4]
+
+                self.idx_tunnels[tunnel_name] = tunnel_port
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
+                    self.wg_name, path_w2u, self.wg_port, tunnel_port, tunnel_port + 1, tunnel_mux
+                ))
+                for mux_idx in range(tunnel_mux):
+                    self.result_postup.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
+                        tunnel_port + 1 + mux_idx, tunnel_remote, tunnel_passwd, tunnel_name, mux_idx
+                    ))
+                    self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2'''.format(
+                        self.wg_name, tunnel_name, mux_idx, path_udp2raw, tunnel_name, mux_idx
+                    ))
+                    self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}-{}.conf'''.format(tunnel_name, mux_idx))
+
+                    self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win-{} C-c '''.format(tunnel_name, mux_idx))
+
+            elif line.startswith('#gost-server '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L=relay+tls://:{}/127.0.0.1:{}' '''.format(
+                    self.wg_name, path_gost, tunnel_port, self.wg_port
+                ))
+            elif line.startswith('#gost-client '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+                tunnel_remote = parts[2]
+
+                self.idx_tunnels[tunnel_name] = tunnel_port
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
+                    self.wg_name, path_gost, tunnel_port, tunnel_remote
+                ))
+            elif line.startswith('#gost-client-mux '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_mux = int(parts[1])
+                tunnel_port = int(parts[2])
+                tunnel_remote = parts[3]
+
+                self.idx_tunnels[tunnel_name] = tunnel_port
+                self.enable_tmux()
+
+                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
+                    self.wg_name, path_w2u, self.wg_port, tunnel_port, tunnel_port + 1, tunnel_mux
+                ))
+                for mux_idx in range(tunnel_mux):
+                    self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
+                        self.wg_name, path_gost, tunnel_port + 1 + mux_idx, tunnel_remote
+                    ))
+            else:
+                sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
+        
+        if not self.wg_mtu:
+            sys.stderr.write('[WARN] MTU not detected, using suggested mtu value (1280).\n')
+            self.result_interface.append('MTU=1280')
+
+    def compile_peers(self):
+        if self.flag_is_route_forward and len(self.input_peer) > 1:
+            sys.stderr.write('[WARN] route-forward should used with ONLY one peer.')
+
+        for this_peer_idx, this_peer_lines in enumerate(self.input_peer):
+            current_pubkey = ''
+            self.result_peers.append('[Peer]')
+
+            for line in this_peer_lines:
+                if line.startswith('PublicKey'):
+                   current_pubkey =  line.split('=')[1].strip()
+
+                if not line.startswith('#'):
+                    self.result_peers.append(line)
+                    continue
+
+                if line.startswith('#use-tunnel'):
+                    parts = line.split(' ')[1:]
+                    tunnel_name = parts[0]
+
+                    tunnel_port = self.idx_tunnels[tunnel_name]
+                    self.result_peers.append('Endpoint=127.0.0.1:{}'.format(tunnel_port))
+                else:
+                    sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
+
+            if self.flag_is_route_forward and this_peer_idx == 0:
+                self.result_postup.insert(0, 'PostUp=wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
+    
+    def get_result(self):
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        return '''# Generated by wg-ops at {}. DO NOT EDIT
+{}
+{}
+{}
+{}
+'''.format(current_time, '\n'.join(self.result_interface), '\n'.join(self.result_postup), '\n'.join(self.result_postdown), '\n'.join(self.result_peers))
+
+
+if __name__ == "__main__":
+    opts, args = getopt.getopt(sys.argv[1:], 'k')
+
+    filepath = args[0]
+    filename = os.path.basename(filepath)
+
+    with open(filename, 'r') as f:
+        content = f.read().split('\n')
+
+    parser = Parser()
+    parser.parse(content)
+    parser.compile_interface()
+    parser.compile_peers()
+
+    if '-k' not in opts:
+        with open('{}.gen'.format(filename), 'w') as f:
+            f.write(parser.get_result())
     else:
-        sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
-
-
-final_content = '# Generated by wg-ops at {}. DO NOT EDIT\n{}'.format(time.strftime("%Y-%m-%d %H:%M:%S"), '\n'.join(results))
-if '-k' not in final_content:
-    with open('{}.gen'.format(filename), 'w') as f:
-        f.write(final_content)
-else:
-    print(final_content)
+        print(parser.get_result())
