@@ -211,6 +211,11 @@ class Parser:
         for this_peer_idx, this_peer_lines in enumerate(self.input_peer):
             current_pubkey = ''
             current_allowed = ''
+            if self.flag_is_route_lookup:
+                current_lookup = self.lookup_table
+            else:
+                current_lookup = ''
+
             self.result_peers.append('[Peer]')
 
             for line in this_peer_lines:
@@ -229,16 +234,23 @@ class Parser:
 
                     tunnel_port = self.idx_tunnels[tunnel_name]
                     self.result_peers.append('Endpoint=127.0.0.1:{}'.format(tunnel_port))
+                elif line.startswith('#route-from'):
+                    parts = line.split(' ')[1:]
+                    table_name = parts[0]
+
+                    if table_name != self.lookup_table:
+                        current_lookup = table_name
+                        sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
                 else:
                     sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
 
             if self.flag_is_route_forward and this_peer_idx == 0:
                 self.result_postup.insert(0, 'PostUp=wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
-            
-            if self.flag_is_route_lookup:
+
+            if current_lookup:
                 for ip_cidr in current_allowed:
-                    self.result_postup.append('PostUp=ip rule add from {} lookup {}'.format(ip_cidr, self.lookup_table))
-                    self.result_postup.append('PostUp=ip rule del from {} lookup {}'.format(ip_cidr, self.lookup_table))
+                    self.result_postup.append('PostUp=ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
+                    self.result_postup.append('PostUp=ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
     
     def get_result(self):
         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -252,6 +264,7 @@ class Parser:
 
 if __name__ == "__main__":
     opts, args = getopt.getopt(sys.argv[1:], 'hko:')
+    opts = {p[0]: p[1] for p in opts}
 
     if '-h' in opts:
         print('''wg-ops: WireGuard configuration extended generator
@@ -278,7 +291,7 @@ TAGS
     filepath = args[0]
     filename = os.path.basename(filepath)
 
-    with open(filename, 'r') as f:
+    with open(filepath, 'r') as f:
         content = f.read().split('\n')
 
     parser = Parser()
