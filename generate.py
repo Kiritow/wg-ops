@@ -25,12 +25,14 @@ class Parser:
         # flags
         self.flag_has_setup_tmux = False
         self.flag_is_route_forward = False
+        self.flag_is_route_lookup = False
 
         # vars
         self.wg_name = '%i'
         self.wg_port = 0
         self.wg_mtu = 0
         self.idx_tunnels = {}
+        self.lookup_table = ''
     
     def enable_tmux(self):
         if not self.flag_has_setup_tmux:
@@ -83,13 +85,21 @@ class Parser:
             elif line.startswith('#iptables-forward'):
                 self.result_postup.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT'.format(self.wg_name))
                 self.result_postdown.append('PostDown=iptables -D FORWARD -i {} -j ACCEPT'.format(self.wg_name))
-            elif line.startswith('#route-forward'):
+            elif line.startswith('#route-to'):
                 self.flag_is_route_forward = True
 
                 parts = line.split(' ')[1:]
                 table_name = parts[0]
 
                 self.result_postup.append('PostUp=ip route add 0.0.0.0/0 dev {} table {}'.format(self.wg_name, table_name))
+                sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+            elif line.startswith('#route-from'):
+                self.flag_is_route_lookup = True
+
+                parts = line.split(' ')[1:]
+                table_name = parts[0]
+
+                self.lookup_table = table_name
                 sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
             elif line.startswith('#udp2raw-server'):
                 parts = line.split(' ')[1:]
@@ -99,13 +109,13 @@ class Parser:
 
                 self.enable_tmux()
 
-                self.result_postup.append('''PostUp=/usr/bin/echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
+                self.result_postup.append('''PostUp=echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
                     tunnel_port, self.wg_port, tunnel_passwd, tunnel_name
                 ))
                 self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
                     self.wg_name, path_udp2raw, tunnel_name
                 ))
-                self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
+                self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
             elif line.startswith('#udp2raw-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -116,13 +126,13 @@ class Parser:
                 self.idx_tunnels[tunnel_name] = tunnel_port
                 self.enable_tmux()
 
-                self.result_postup.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
+                self.result_postup.append('''PostUp=echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
                     tunnel_port, tunnel_remote, tunnel_passwd, tunnel_name
                 ))
                 self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
                     self.wg_name, tunnel_name, path_udp2raw, tunnel_name
                 ))
-                self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
+                self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
                 self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win C-c '''.format(tunnel_name))
             elif line.startswith('#udp2raw-client-mux '):
                 parts = line.split(' ')[1:]
@@ -139,13 +149,13 @@ class Parser:
                     self.wg_name, path_w2u, self.wg_port, tunnel_port, tunnel_port + 1, tunnel_mux
                 ))
                 for mux_idx in range(tunnel_mux):
-                    self.result_postup.append('''PostUp=/usr/bin/echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
+                    self.result_postup.append('''PostUp=echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
                         tunnel_port + 1 + mux_idx, tunnel_remote, tunnel_passwd, tunnel_name, mux_idx
                     ))
                     self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2'''.format(
                         self.wg_name, tunnel_name, mux_idx, path_udp2raw, tunnel_name, mux_idx
                     ))
-                    self.result_postup.append('''PostUp=/usr/bin/rm /tmp/temp-udp2raw-{}-{}.conf'''.format(tunnel_name, mux_idx))
+                    self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}-{}.conf'''.format(tunnel_name, mux_idx))
 
                     self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win-{} C-c '''.format(tunnel_name, mux_idx))
 
@@ -201,11 +211,14 @@ class Parser:
 
         for this_peer_idx, this_peer_lines in enumerate(self.input_peer):
             current_pubkey = ''
+            current_allowed = ''
             self.result_peers.append('[Peer]')
 
             for line in this_peer_lines:
                 if line.startswith('PublicKey'):
-                   current_pubkey =  line.split('=')[1].strip()
+                    current_pubkey =  line.split('=')[1].strip()
+                if line.startswith('AllowedIPs'):
+                    current_allowed = line.split('=')[1].strip().split(',') 
 
                 if not line.startswith('#'):
                     self.result_peers.append(line)
@@ -222,10 +235,15 @@ class Parser:
 
             if self.flag_is_route_forward and this_peer_idx == 0:
                 self.result_postup.insert(0, 'PostUp=wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
+            
+            if self.flag_is_route_lookup:
+                for ip_cidr in current_allowed:
+                    self.result_postup.append('PostUp=ip rule add from {} lookup {}'.format(ip_cidr, self.lookup_table))
+                    self.result_postup.append('PostUp=ip rule del from {} lookup {}'.format(ip_cidr, self.lookup_table))
     
     def get_result(self):
         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
-        return '''# Generated by wg-ops at {}. DO NOT EDIT
+        return '''# Generated by wg-ops at {}. DO NOT EDIT.
 {}
 {}
 {}
@@ -234,7 +252,29 @@ class Parser:
 
 
 if __name__ == "__main__":
-    opts, args = getopt.getopt(sys.argv[1:], 'k')
+    opts, args = getopt.getopt(sys.argv[1:], 'hko:')
+
+    if '-h' in opts:
+        print('''wg-ops: WireGuard configuration extended generator
+OPTIONS
+    -h Display this help and quit.
+    -k Output generated config to standard output
+    -o <filename> Output generated config to file. Default is {source_filename}.gen
+TAGS
+    #enable-bbr
+    #enable-forward
+    #iptables-forward
+    #route-to table
+    #route-from table
+    #udp2raw-server name port password
+    #udp2raw-client name port remote password
+    #udp2raw-client-mux name mux port remote password
+    #gost-server name port
+    #gost-client name port remote
+    #gost-client-mux name mux port remote
+    #use-tunnel name
+''')
+        exit(0)
 
     filepath = args[0]
     filename = os.path.basename(filepath)
@@ -247,8 +287,13 @@ if __name__ == "__main__":
     parser.compile_interface()
     parser.compile_peers()
 
-    if '-k' not in opts:
-        with open('{}.gen'.format(filename), 'w') as f:
+    if '-k' in opts or ('-o' in opts and opts['-o'] == '-'):
+        print(parser.get_result())
+    elif '-o' in opts:
+        sys.stderr.write('Saving to {}...\n'.format(opts['-o']))
+        with open(opts['-o'], 'w') as f:
             f.write(parser.get_result())
     else:
-        print(parser.get_result())
+        sys.stderr.write('Saving to {}.gen...\n'.format(filename))
+        with open('{}.gen'.format(filename), 'w') as f:
+            f.write(parser.get_result())
