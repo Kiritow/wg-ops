@@ -222,7 +222,7 @@ class Parser:
 
             for line in this_peer_lines:
                 if line.startswith('PublicKey'):
-                    current_pubkey =  line.split('=')[1].strip()
+                    current_pubkey =  '='.join(line.split('=')[1:])
                 if line.startswith('AllowedIPs'):
                     current_allowed = line.split('=')[1].strip().split(',') 
 
