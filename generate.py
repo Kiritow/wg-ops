@@ -252,7 +252,7 @@ class Parser:
             if current_lookup:
                 for ip_cidr in current_allowed:
                     self.result_postup.append('PostUp=ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
-                    self.result_postup.append('PostUp=ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
+                    self.result_postdown.append('PostDown=ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
     
     def get_result(self):
         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
