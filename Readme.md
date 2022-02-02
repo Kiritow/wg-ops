@@ -6,9 +6,9 @@ A group of Interactive bash scripts for [WireGuard](https://github.com/WireGuard
 
 1. Run `install.sh`. (May prompt sudo)
 
-2. Run `create.sh` and fill in content interactively.
+2. Write a valid WireGuard config file, with supported extension tags.
 
-3. Run the generated `start.sh`. (May prompt sudo)
+3. Run `python3 generate.py` to convert extension tags into config lines.
 
 Start as service: `systemctl start wg-quick@wg0`
 
@@ -16,9 +16,28 @@ Start service on system start-up: `systemctl enable wg-quick@wg0`
 
 See [wg-quick(8)](https://man7.org/linux/man-pages/man8/wg-quick.8.html) for more information.
 
-### Quick Create
+Run `python3 generate.py -h` for more help about the generator.
 
-On client-only nodes, run `quick_create_client.sh` and paste the **Quick Create String** (starts with `#QCS#`) to setup quickly.
+```
+wg-ops: WireGuard configuration extended generator
+OPTIONS
+    -h Display this help and quit.
+    -k Output generated config to standard output
+    -o <filename> Output generated config to file. Default is {source_filename}.gen
+TAGS
+    #enable-bbr
+    #enable-forward
+    #iptables-forward
+    #route-to table
+    #route-from table
+    #udp2raw-server name port password
+    #udp2raw-client name port remote password
+    #udp2raw-client-mux name mux port remote password
+    #gost-server name port
+    #gost-client name port remote
+    #gost-client-mux name mux port remote
+    #use-tunnel name
+```
 
 ## Notice
 
