@@ -93,10 +93,10 @@ class Parser:
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
 
         self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
-            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
         self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
-            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
     
     def add_udp2raw_client(self, listen_port, tunnel_password, remote_addr):
@@ -113,10 +113,10 @@ class Parser:
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
 
         self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
-            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
         self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
-            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
 
     def add_trojan_server(self, listen_port, tunnel_password, ssl_cert_path, ssl_key_path):
@@ -138,13 +138,13 @@ class Parser:
             "cert": cert_uuid,
         })
 
-    def add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_addr, ssl_sni=None):
+    def add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
         self.container_bootstrap.append({
             "type": "trojan-client",
             "listen": listen_port,
             "password": tunnel_password,
             "remote": remote_addr,
-            "target": target_addr,
+            "target": target_port,
             "sni": ssl_sni,
         })
 
@@ -318,6 +318,7 @@ class Parser:
             while len(config_gen) > 1024:
                 config_parts.append(config_gen[:1024])
                 config_gen = config_gen[1024:]
+            config_parts.append(config_gen)
 
             tmp_base64_filepath = "/tmp/wg-op-container-bootstrap-{}.data".format(self.wg_name)
             tmp_filepath = "/tmp/wg-op-container-bootstrap-{}.json".format(self.wg_name)
@@ -337,9 +338,15 @@ class Parser:
             self.result_postup.append('PostUp={}'.format(
                 self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
             ))
+            if self.container_expose_port:
+                cmd_ports = ["-p {}:{}/{}".format(this_port['port'], this_port['port'], this_port['mode']) for this_port in self.container_expose_port]
+                cmd_ports = ' '.join(cmd_ports)
+            else:
+                cmd_ports = ''
+
             self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman run --rm -v {}:/root/bin -v {}:/root/app --name {} --network {} -d wg-ops-systemd'.format(
-                    path_bin_dir, path_app_dir, self.get_container_name(), self.get_container_network_name()))
+                self.get_podman_cmd_with('podman run --rm --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-systemd'.format(
+                    path_bin_dir, path_app_dir, cmd_ports, self.get_container_name(), self.get_container_network_name()))
             ))
             self.result_postup.append('PostUp={}'.format(
                 self.get_podman_cmd_with('podman exec {} mkdir -p /root/ssl /root/runner /root/conf'.format(
@@ -355,8 +362,8 @@ class Parser:
             self.result_postup.extend(self.result_container_prebootstrap)
 
             self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -e GATEWAY_IP=$CT_GATEWAY {} /usr/bin/python3 /root/app/bootstrap.py'.format(
-                    path_get_gateway, self.get_container_network_name(), self.get_container_name()))
+                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                    path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name()))
             ))
 
             self.result_postup.extend(self.result_container_postbootstrap)
@@ -397,8 +404,9 @@ class Parser:
 
                         if addr_host == "gateway":
                             tunnel_addr = ""
-                            self.result_postup.append("PostUp=CT_GATEWAY=$(/usr/bin/python3 {} {}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
-                                path_get_gateway, self.get_container_network_name(), self.wg_name, current_pubkey, addr_port))
+                            self.result_postup.append("PostUp=CT_GATEWAY=$({}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
+                                self.get_podman_cmd_with('/usr/bin/python3 {} {}'.format(path_get_gateway, self.get_container_network_name())),
+                                self.wg_name, current_pubkey, addr_port))
                     elif tunnel_addr:
                         tunnel_addr = "127.0.0.1:{}".format(tunnel_addr)
 
