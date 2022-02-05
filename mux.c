@@ -9,20 +9,17 @@
 #include <unistd.h>
 #include <errno.h>
 
-// WireGuard ---> W2U --> udp2raw
+// Source <--> Muxer <--> Multiple Target
 int main(int argc, char* argv[])
 {
     int ret, flags;
     int listener, sender, ep;
-    int PORT_WG=51820, PORT_ENDP=29000, PORT_UR_BEGIN=29100, PORT_UR_SIZE=10;
+    int PORT_ENDP=29000, PORT_UR_BEGIN=29100, PORT_UR_SIZE=10;
 
-    while((ret = getopt(argc, argv, "hf:l:t:s:")) != -1)
+    while((ret = getopt(argc, argv, "hl:t:s:")) != -1)
     {
         switch(ret)
         {
-        case 'f':
-            PORT_WG=atoi(optarg);
-            break;
         case 'l':
             PORT_ENDP=atoi(optarg);
             break;
@@ -34,12 +31,12 @@ int main(int argc, char* argv[])
             break;
         case 'h':
         default:
-            fprintf(stderr, "Usage: %s -f WGPort -l ListenPort -t TargetPort -s TargetRange\n", argv[0]);
+            fprintf(stderr, "Usage: %s -l ListenPort -t TargetPort -s TargetRange\n", argv[0]);
             exit(1);
         }
     }
 
-    fprintf(stderr, "listening on %d, receiving from %d and sending to [%d,%d)\n", PORT_ENDP, PORT_WG, PORT_UR_BEGIN, PORT_UR_BEGIN+PORT_UR_SIZE);
+    fprintf(stderr, "listening on %d, sending to [%d,%d)\n", PORT_ENDP, PORT_UR_BEGIN, PORT_UR_BEGIN+PORT_UR_SIZE);
 
     listener = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in saddr;
@@ -97,14 +94,10 @@ int main(int argc, char* argv[])
         addrTargets[i].sin_port = htons(PORT_UR_BEGIN + i);
     }
 
-    struct sockaddr_in addrWg;
-    memset(&addrWg, 0, sizeof(addrWg));
-    addrWg.sin_family = AF_INET;
-    inet_pton(AF_INET, "127.0.0.1", &addrWg.sin_addr);
-    addrWg.sin_port = htons(PORT_WG);
+    struct sockaddr_in addrFrom;
+    memset(&addrFrom, 0, sizeof(addrFrom));
 
     int rrOffset = 0;
-
     char buffer[4096];
 
     while(1)
@@ -121,7 +114,8 @@ int main(int argc, char* argv[])
             if (events[i].data.fd == listener)
             {
                 int nsize;
-                while((nsize = recvfrom(listener, buffer, sizeof(buffer), 0, NULL, NULL)) > 0) {
+                socklen_t socklen = sizeof(addrFrom);
+                while((nsize = recvfrom(listener, buffer, sizeof(buffer), 0, (struct sockaddr*)&addrFrom, &socklen)) > 0) {
                     sendto(sender, buffer, nsize, 0, (const struct sockaddr*)(addrTargets + rrOffset), sizeof(struct sockaddr_in));
                     if (++rrOffset >= PORT_UR_SIZE) {
                         rrOffset = 0;
@@ -136,7 +130,7 @@ int main(int argc, char* argv[])
             {
                 int nsize;
                 while((nsize = recvfrom(sender, buffer, sizeof(buffer), 0, NULL, NULL)) > 0) {
-                    sendto(listener, buffer, nsize, 0, (const struct sockaddr*)&addrWg, sizeof(struct sockaddr_in));
+                    sendto(listener, buffer, nsize, 0, (const struct sockaddr*)&addrFrom, sizeof(struct sockaddr_in));
                 }
 
                 if (nsize < 0 && errno != EAGAIN) {
