@@ -2,15 +2,19 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3 tmux build-essential
+sudo apt install -y curl wireguard python3
+
+. /etc/os-release
+echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+curl -L "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/Release.key" | sudo apt-key add -
+sudo apt update
+sudo apt install -y podman
 
 mkdir -p local
 mkdir -p local/tunnel
 
 mkdir -p bin
 cd bin
-
-gcc -O3 -o w2u ../w2u.c
 
 curl -vL https://github.com/wangyu-/udp2raw-tunnel/releases/download/20200818.0/udp2raw_binaries.tar.gz -o udp2raw.tgz
 tar -xvzf udp2raw.tgz udp2raw_amd64
@@ -23,8 +27,9 @@ chmod +x speederv2_amd64
 rm udpspeeder.tgz
 
 curl -vL https://github.com/ginuerzh/gost/releases/download/v2.11.1/gost-linux-amd64-2.11.1.gz -o gost.gz
-gzip -d gost.gz
+gzip -cd gost.gz > gost
 chmod +x gost
+rm gost.gz
 
 cd ..
 
@@ -57,3 +62,14 @@ then
 else
     echo "[WARN] gost hash mismatch: $LOCAL_GOST_HASH. Expected: $VERIFIED_GOST_HASH"
 fi
+
+sudo podman build . -f DockerfileBuildEnv -t wg-ops-buildenv
+sudo podman build . -f DockerfileRunEnv -t wg-ops-runenv
+
+podman build . -f DockerfileBuildEnv -t wg-ops-buildenv
+podman build . -f DockerfileRunEnv -t wg-ops-runenv
+
+CONTAINER_ID=$(podman run --rm -it -v ./bin:/root/bin -d wg-ops-buildenv)
+podman cp mux.c $CONTAINER_ID:/root/
+podman exec -it $CONTAINER_ID bash -c "cd /root && gcc -O3 -o bin/mux mux.c"
+podman stop $CONTAINER_ID
