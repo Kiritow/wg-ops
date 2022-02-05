@@ -2,12 +2,14 @@ import os
 import sys
 import time
 import getopt
+import uuid
+import json
+import base64
 
 
-path_udp2raw = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/udp2raw_amd64')
-path_w2u = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/w2u')
-path_gost = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin/gost')
-
+path_get_gateway = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-gateway.py')
+path_bin_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin')
+path_app_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'app')
 
 class Parser:
     def __init__(self):
@@ -21,8 +23,11 @@ class Parser:
         self.result_postdown = []
         self.result_peers = []
 
+        # container related output
+        self.result_container_prebootstrap = []
+        self.result_container_postbootstrap = []
+
         # flags
-        self.flag_has_setup_tmux = False
         self.flag_is_route_forward = False
         self.flag_is_route_lookup = False
 
@@ -32,12 +37,116 @@ class Parser:
         self.wg_mtu = 0
         self.idx_tunnels = {}
         self.lookup_table = ''
+        self.container_expose_port = []
+        self.container_bootstrap = []
+        self.podman_user = ''
     
-    def enable_tmux(self):
-        if not self.flag_has_setup_tmux:
-            self.flag_has_setup_tmux = True
-            self.result_postup.append('''PostUp=/usr/bin/tmux new-session -s tunnel-{} -d 'watch -n 1 --color WG_COLOR_MODE=always wg show {}' '''.format(self.wg_name, self.wg_name))
-            self.result_postdown.append('PostDown=sleep 1; /usr/bin/tmux kill-session -t tunnel-{}'.format(self.wg_name))
+    def get_container_network_name(self):
+        return "wgop-net-{}".format(self.wg_name)
+
+    def get_container_name(self):
+        return "wgop-runner-{}".format(self.wg_name)
+
+    def get_podman_cmd_with(self, command):
+        if self.podman_user:
+            return "su - {} -c '{}'".format(self.podman_user, command)
+        else:
+            return command
+
+    def add_expose(self, expose_port, mode='udp'):
+        self.container_expose_port.append({
+            "port": expose_port,
+            "mode": mode,
+        })
+
+    def add_muxer(self, listen_port, forward_start, forward_size):
+        self.container_bootstrap.append({
+            "type": "mux",
+            "listen": listen_port,
+            "forward": forward_start,
+            "size": forward_size,
+        })
+
+    def add_gost_server(self, listen_port):
+        self.container_bootstrap.append({
+            "type": "gost-server",
+            "listen": listen_port,
+        })
+
+    def add_gost_client(self, listen_port, tunnel_remote):
+        self.container_bootstrap.append({
+            "type": "gost-client",
+            "listen": listen_port,
+            "remote": tunnel_remote,
+        })
+
+    def add_udp2raw_server(self, listen_port, tunnel_password):
+        conf_uuid = str(uuid.uuid4())
+
+        self.container_bootstrap.append({
+            "type": "udp2raw-server",
+            "listen": listen_port,
+            "password": tunnel_password,
+            "id": conf_uuid,
+        })
+
+        ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
+
+        self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+        ))
+        self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+        ))
+    
+    def add_udp2raw_client(self, listen_port, tunnel_password, remote_addr):
+        conf_uuid = str(uuid.uuid4())
+
+        self.container_bootstrap.append({
+            "type": "udp2raw-client",
+            "listen": listen_port,
+            "password": tunnel_password,
+            "remote": remote_addr,
+            "id": conf_uuid,
+        })
+
+        ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
+
+        self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+        ))
+        self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
+            self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {}".format(self.get_container_name(), ipt_filename_inside))
+        ))
+
+    def add_trojan_server(self, listen_port, tunnel_password, ssl_cert_path, ssl_key_path):
+        cert_uuid = str(uuid.uuid4())
+        cert_filepath = "/root/ssl/{}.cert".format(cert_uuid)
+        key_filepath = "/root/ssl/{}.key".format(cert_uuid)
+
+        self.result_container_prebootstrap.append('PostUp={}'.format(
+            self.get_podman_cmd_with('podman cp {} {}:{}'.format(ssl_cert_path, self.get_container_name(), cert_filepath))
+        ))
+        self.result_container_prebootstrap.append('PostUp={}'.format(
+            self.get_podman_cmd_with('podman cp {} {}:{}'.format(ssl_key_path, self.get_container_name(), key_filepath))
+        ))
+
+        self.container_bootstrap.append({
+            "type": "trojan-server",
+            "listen": listen_port,
+            "password": tunnel_password,
+            "cert": cert_uuid,
+        })
+
+    def add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_addr, ssl_sni=None):
+        self.container_bootstrap.append({
+            "type": "trojan-client",
+            "listen": listen_port,
+            "password": tunnel_password,
+            "remote": remote_addr,
+            "target": target_addr,
+            "sni": ssl_sni,
+        })
 
     def parse(self, content):
         # parse input
@@ -102,21 +211,19 @@ class Parser:
 
                 self.lookup_table = table_name
                 sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+            elif line.startswith('#podman-user'):
+                parts = line.split(' ')[1:]
+                user_name = parts[0]
+
+                self.podman_user = user_name
             elif line.startswith('#udp2raw-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
                 tunnel_port = parts[1]
                 tunnel_passwd = parts[2]
 
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
-                    tunnel_port, self.wg_port, tunnel_passwd, tunnel_name
-                ))
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
-                    self.wg_name, path_udp2raw, tunnel_name
-                ))
-                self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
+                self.add_udp2raw_server(tunnel_port, tunnel_passwd)
+                self.add_expose(tunnel_port)
             elif line.startswith('#udp2raw-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -124,17 +231,8 @@ class Parser:
                 tunnel_remote = parts[2]
                 tunnel_passwd = parts[3]
 
-                self.idx_tunnels[tunnel_name] = tunnel_port
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}.conf'''.format(
-                    tunnel_port, tunnel_remote, tunnel_passwd, tunnel_name
-                ))
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win -d '{} --conf-file /tmp/temp-udp2raw-{}.conf'; sleep 2'''.format(
-                    self.wg_name, tunnel_name, path_udp2raw, tunnel_name
-                ))
-                self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}.conf'''.format(tunnel_name))
-                self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win C-c '''.format(tunnel_name))
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_udp2raw_client(tunnel_port, tunnel_passwd, tunnel_remote)
             elif line.startswith('#udp2raw-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -143,45 +241,24 @@ class Parser:
                 tunnel_remote = parts[3]
                 tunnel_passwd = parts[4]
 
-                self.idx_tunnels[tunnel_name] = tunnel_port
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
-                    self.wg_name, path_w2u, self.wg_port, tunnel_port, tunnel_port + 1, tunnel_mux
-                ))
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
-                    self.result_postup.append('''PostUp=echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n--fix-gro\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
-                        tunnel_port + 1 + mux_idx, tunnel_remote, tunnel_passwd, tunnel_name, mux_idx
-                    ))
-                    self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -n {}-win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2'''.format(
-                        self.wg_name, tunnel_name, mux_idx, path_udp2raw, tunnel_name, mux_idx
-                    ))
-                    self.result_postup.append('''PostUp=rm /tmp/temp-udp2raw-{}-{}.conf'''.format(tunnel_name, mux_idx))
-
-                    self.result_postdown.append('''PostDown=/usr/bin/tmux send-keys -t {}-win-{} C-c '''.format(tunnel_name, mux_idx))
-
+                    self.add_udp2raw_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote)
             elif line.startswith('#gost-server '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
                 tunnel_port = parts[1]
 
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L=relay+tls://:{}/127.0.0.1:{}' '''.format(
-                    self.wg_name, path_gost, tunnel_port, self.wg_port
-                ))
+                self.add_gost_server(tunnel_port)
             elif line.startswith('#gost-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
                 tunnel_port = parts[1]
                 tunnel_remote = parts[2]
 
-                self.idx_tunnels[tunnel_name] = tunnel_port
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
-                    self.wg_name, path_gost, tunnel_port, tunnel_remote
-                ))
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_gost_client(tunnel_port, tunnel_remote)
             elif line.startswith('#gost-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -189,22 +266,100 @@ class Parser:
                 tunnel_port = int(parts[2])
                 tunnel_remote = parts[3]
 
-                self.idx_tunnels[tunnel_name] = tunnel_port
-                self.enable_tmux()
-
-                self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -f {} -l {} -t {} -s {}' '''.format(
-                    self.wg_name, path_w2u, self.wg_port, tunnel_port, tunnel_port + 1, tunnel_mux
-                ))
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
-                    self.result_postup.append('''PostUp=/usr/bin/tmux new-window -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
-                        self.wg_name, path_gost, tunnel_port + 1 + mux_idx, tunnel_remote
-                    ))
+                    self.add_gost_client(tunnel_port + 1 + mux_idx, tunnel_remote)
+            elif line.startswith('#trojan-server'):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+                tunnel_passwd = parts[2]
+                tunnel_cert = parts[3]
+                tunnel_key = parts[4]
+
+                self.add_trojan_server(tunnel_port, tunnel_passwd, tunnel_cert, tunnel_key)
+                self.add_expose(tunnel_port)
+            elif line.startswith('#trojan-client '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_port = parts[1]
+                tunnel_passwd = parts[2]
+                tunnel_remote = parts[3]
+                tunnel_target = parts[4]
+
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_trojan_client(tunnel_port, tunnel_passwd, tunnel_remote, tunnel_target)
+            elif line.startswith('#trojan-client-mux '):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                tunnel_mux = parts[1]
+                tunnel_port = parts[2]
+                tunnel_passwd = parts[3]
+                tunnel_remote = parts[4]
+                tunnel_target = parts[5]
+
+                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
+                for mux_idx in range(tunnel_mux):
+                    self.add_trojan_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote, tunnel_target)
             else:
                 sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
-        
+
         if not self.wg_mtu:
             sys.stderr.write('[WARN] MTU not detected, using suggested mtu value (1280).\n')
             self.result_interface.append('MTU=1280')
+        
+        if self.container_bootstrap:
+            config_str = json.dumps(self.container_bootstrap)
+            config_gen = base64.b64encode(config_str.encode()).decode()
+            
+            config_parts = []
+            while len(config_gen) > 1024:
+                config_parts.append(config_gen[:1024])
+                config_gen = config_gen[1024:]
+
+            tmp_base64_filepath = "/tmp/wg-op-container-bootstrap-{}.data".format(self.wg_name)
+            tmp_filepath = "/tmp/wg-op-container-bootstrap-{}.json".format(self.wg_name)
+
+            self.result_postup.append('PostUp=rm -f {}'.format(tmp_base64_filepath))
+            for this_config_line in config_parts:
+                self.result_postup.append('PostUp=echo {} >> {}'.format(this_config_line, tmp_base64_filepath))
+            self.result_postup.append('PostUp=base64 -d {} > {}'.format(tmp_base64_filepath, tmp_filepath))
+            self.result_postup.append('PostUp=rm {}'.format(tmp_base64_filepath))
+
+            self.result_container_prebootstrap.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman cp {} {}:/root/conf/bootstrap.json'.format(tmp_filepath, self.get_container_name()))
+            ))
+            self.result_container_prebootstrap.append('PostUp=rm {}'.format(tmp_filepath))
+
+        if self.result_container_prebootstrap or self.result_container_postbootstrap:
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
+            ))
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman run --rm -v {}:/root/bin -v {}:/root/app --name {} --network {} -d wg-ops-systemd'.format(
+                    path_bin_dir, path_app_dir, self.get_container_name(), self.get_container_network_name()))
+            ))
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman exec {} mkdir -p /root/ssl /root/runner /root/conf'.format(
+                    self.get_container_name()))
+            ))
+            self.result_postdown.append('PostDown={}'.format(
+                self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name()))
+            ))
+            self.result_postdown.append('PostDown={}'.format(
+                self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
+            ))
+
+            self.result_postup.extend(self.result_container_prebootstrap)
+
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -e GATEWAY_IP=$CT_GATEWAY {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                    path_get_gateway, self.get_container_network_name(), self.get_container_name()))
+            ))
+
+            self.result_postup.extend(self.result_container_postbootstrap)
 
     def compile_peers(self):
         if self.flag_is_route_forward and len(self.input_peer) > 1:
@@ -234,8 +389,21 @@ class Parser:
                     parts = line.split(' ')[1:]
                     tunnel_name = parts[0]
 
-                    tunnel_port = self.idx_tunnels[tunnel_name]
-                    self.result_peers.append('Endpoint=127.0.0.1:{}'.format(tunnel_port))
+                    tunnel_addr = self.idx_tunnels[tunnel_name]
+                    if ":" in tunnel_addr:
+                        addr_parts = tunnel_addr.split(':')
+                        addr_host = addr_parts[0]
+                        addr_port = addr_parts[1]
+
+                        if addr_host == "gateway":
+                            tunnel_addr = ""
+                            self.result_postup.append("PostUp=CT_GATEWAY=$(/usr/bin/python3 {} {}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
+                                path_get_gateway, self.get_container_network_name(), self.wg_name, current_pubkey, addr_port))
+                    elif tunnel_addr:
+                        tunnel_addr = "127.0.0.1:{}".format(tunnel_addr)
+
+                    if tunnel_addr:
+                        self.result_peers.append('Endpoint={}'.format(tunnel_addr))
                 elif line.startswith('#route-from'):
                     parts = line.split(' ')[1:]
                     table_name = parts[0]
