@@ -1,4 +1,4 @@
-FROM ubuntu:latest
+FROM wg-ops-base:latest
 RUN rm -f /etc/apt/apt.conf.d/docker-gzip-indexes \
   && apt update \
   && TZ=Asia/Shanghai DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt install -y systemd systemd-sysv \
