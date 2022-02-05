@@ -63,13 +63,11 @@ else
     echo "[WARN] gost hash mismatch: $LOCAL_GOST_HASH. Expected: $VERIFIED_GOST_HASH"
 fi
 
-sudo podman build . -f DockerfileBase -t wg-ops-base:latest
-sudo podman build . -f DockerfileBuildEnv -t wg-ops-buildenv:latest
-sudo podman build . -f DockerfileRunEnv -t wg-ops-runenv:latest
-
 podman build . -f DockerfileBase -t wg-ops-base:latest
 podman build . -f DockerfileBuildEnv -t wg-ops-buildenv:latest
 podman build . -f DockerfileRunEnv -t wg-ops-runenv:latest
+
+podman save wg-ops-runenv:latest | sudo podman load
 
 CONTAINER_ID=$(podman run --rm -it -v ./bin:/root/bin -d wg-ops-buildenv)
 podman cp mux.c $CONTAINER_ID:/root/
