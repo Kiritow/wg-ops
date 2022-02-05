@@ -345,7 +345,7 @@ class Parser:
                 cmd_ports = ''
 
             self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman run --rm --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-systemd'.format(
+                self.get_podman_cmd_with('podman run --rm --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-runenv'.format(
                     path_bin_dir, path_app_dir, cmd_ports, self.get_container_name(), self.get_container_network_name()))
             ))
             self.result_postup.append('PostUp={}'.format(
