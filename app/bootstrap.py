@@ -1,12 +1,22 @@
 import os
+import sys
 import json
 import uuid
+import time
 import subprocess
+
+
+def write_progress(content):
+    sys.stdout.write("\033[2K\r{}".format(content))
+    time.sleep(0.1)
+
+
+def write_finish(content):
+    sys.stdout.write("\033[2K\r{}\n".format(content))
 
 
 def add_runner(runner_pool, content):
     runner_id = str(uuid.uuid4())
-    print('Adding runner {}...'.format(runner_id))
 
     with open("/root/runner/{}.sh".format(runner_id), "w") as f:
         f.write(content)
@@ -16,7 +26,7 @@ def add_runner(runner_pool, content):
 
 
 def run_cmd(args):
-    print("[Run] {}".format(' '.join(args)))
+    write_progress("[Run] {}".format(' '.join(args)))
     subprocess.check_call(args)
 
 
@@ -38,7 +48,7 @@ if __name__ == "__main__":
         config = json.loads(config)
 
     for idx, info in enumerate(config):
-        print('Loading {} of {} parts with type {}...'.format(idx + 1, len(config), info['type']))
+        write_progress('Loading {} of {} parts, type: {}...'.format(idx + 1, len(config), info['type']))
 
         if info['type'] == 'mux':
             add_runner(runners, '''#!/bin/bash
@@ -137,7 +147,9 @@ systemctl start nginx
 exec /root/bin/trojan-go -config /root/conf/{}.json
 '''.format(config_id))
         else:
-            print('Unknown type: {}'.format(info['type']))
+            write_finish('Unknown type: {}'.format(info['type']))
+
+    write_finish('{} parts loaded.'.format(len(config)))
 
     print('Adding service template...')
     with open("/lib/systemd/system/wg-ops-runner@.service", "w") as f:
@@ -157,7 +169,9 @@ WantedBy=multi-user.target
     run_cmd(["systemctl", "daemon-reload"])
 
     for idx, runner_id in enumerate(runners):
-        print("Starting runner {} of {}...".format(idx + 1, len(runners)))
+        write_progress("Starting runner {} of {}...".format(idx + 1, len(runners)))
         run_cmd(["systemctl", "start", "wg-ops-runner@{}".format(runner_id)])
+
+    write_finish('{} runner started.'.format(len(runners)))
 
     print('Bootstrap finished.')

@@ -362,7 +362,7 @@ class Parser:
             self.result_postup.extend(self.result_container_prebootstrap)
 
             self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
                     path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name()))
             ))
 
