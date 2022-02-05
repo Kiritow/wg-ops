@@ -1,0 +1,22 @@
+FROM ubuntu:latest
+RUN rm -f /etc/apt/apt.conf.d/docker-gzip-indexes \
+  && apt update \
+  && TZ=Asia/Shanghai DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true apt install -y systemd systemd-sysv \
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /tmp/* /var/tmp/* \
+  && sed 's/ProtectHostname=yes/ProtectHostname=no/g' -i /lib/systemd/system/systemd-logind.service \
+  && cd /lib/systemd/system/sysinit.target.wants/ \
+  && ls | grep -v systemd-tmpfiles-setup | xargs rm -f $1 \
+  && rm -f /lib/systemd/system/multi-user.target.wants/* \
+    /etc/systemd/system/*.wants/* \
+    /lib/systemd/system/local-fs.target.wants/* \
+    /lib/systemd/system/sockets.target.wants/*udev* \
+    /lib/systemd/system/sockets.target.wants/*initctl* \
+    /lib/systemd/system/basic.target.wants/* \
+    /lib/systemd/system/anaconda.target.wants/* \
+    /lib/systemd/system/plymouth* \
+    /lib/systemd/system/systemd-update-utmp*
+RUN apt update \
+  && apt install -y python3 nginx iputils-ping iproute2 curl \
+  && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["/bin/systemd"]
