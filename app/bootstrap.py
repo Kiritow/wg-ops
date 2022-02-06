@@ -99,11 +99,11 @@ exec /root/bin/gost -L=relay+tls://:{}/{}:{}
             jconfig = {
                 "run_type": "forward",
                 "local_addr": "0.0.0.0",
-                "local_port": info['listen'],
+                "local_port": int(info['listen']),
                 "remote_addr": remote_host,
                 "remote_port": remote_port,
                 "target_addr": "wgop.gateway",
-                "target_port": info['target'],
+                "target_port": int(info['target']),
                 "log_level": 0,
                 "password": [info['password']],
                 "ssl": {}
@@ -126,7 +126,7 @@ exec /root/bin/trojan-go -config /root/conf/{}.json
             jconfig = {
                 "run_type": "server",
                 "local_addr": "0.0.0.0",
-                "local_port": info['listen'],
+                "local_port": int(info['listen']),
                 "remote_addr": "127.0.0.1",
                 "remote_port": 80,
                 "password": [info['password']],
