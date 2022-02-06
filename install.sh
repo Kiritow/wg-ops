@@ -2,7 +2,7 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3
+sudo apt install -y curl wireguard python3 unzip
 
 . /etc/os-release
 echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
@@ -30,6 +30,11 @@ curl -vL https://github.com/ginuerzh/gost/releases/download/v2.11.1/gost-linux-a
 gzip -cd gost.gz > gost
 chmod +x gost
 rm gost.gz
+
+curl -vL https://github.com/p4gefau1t/trojan-go/releases/download/v0.10.6/trojan-go-linux-amd64.zip -o trojan.zip
+unzip -p trojan.zip trojan-go > trojan-go
+chmod +x trojan-go
+rm trojan.zip
 
 cd ..
 
