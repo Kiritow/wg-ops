@@ -104,7 +104,6 @@ exec /root/bin/gost -L=relay+tls://:{}/{}:{}
                 "remote_port": remote_port,
                 "target_addr": "wgop.gateway",
                 "target_port": int(info['target']),
-                "log_level": 0,
                 "password": [info['password']],
                 "ssl": {}
             }
@@ -130,7 +129,6 @@ exec /root/bin/trojan-go -config /root/conf/{}.json
                 "remote_addr": "127.0.0.1",
                 "remote_port": 80,
                 "password": [info['password']],
-                "log_level": 0,
                 "ssl": {
                     "cert": "/root/ssl/{}.cert".format(info['cert']),
                     "key": "/root/ssl/{}.key".format(info['cert']),
