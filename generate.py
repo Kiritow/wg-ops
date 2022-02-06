@@ -30,6 +30,7 @@ class Parser:
         # flags
         self.flag_is_route_forward = False
         self.flag_is_route_lookup = False
+        self.flag_container_must_host = False
 
         # vars
         self.wg_name = '%i'
@@ -42,7 +43,10 @@ class Parser:
         self.podman_user = ''
     
     def get_container_network_name(self):
-        return "wgop-net-{}".format(self.wg_name)
+        if self.flag_container_must_host:
+            return "host"
+        else:
+            return "wgop-net-{}".format(self.wg_name)
 
     def get_container_name(self):
         return "wgop-runner-{}".format(self.wg_name)
@@ -222,8 +226,12 @@ class Parser:
                 tunnel_port = parts[1]
                 tunnel_passwd = parts[2]
 
+                if self.podman_user:
+                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    exit(1)
+
                 self.add_udp2raw_server(tunnel_port, tunnel_passwd)
-                self.add_expose(tunnel_port)
+                self.flag_container_must_host = True
             elif line.startswith('#udp2raw-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -231,8 +239,13 @@ class Parser:
                 tunnel_remote = parts[2]
                 tunnel_passwd = parts[3]
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                if self.podman_user:
+                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    exit(1)
+
+                self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
                 self.add_udp2raw_client(tunnel_port, tunnel_passwd, tunnel_remote)
+                self.flag_container_must_host = True
             elif line.startswith('#udp2raw-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -241,7 +254,12 @@ class Parser:
                 tunnel_remote = parts[3]
                 tunnel_passwd = parts[4]
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                if self.podman_user:
+                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    exit(1)
+
+                self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
+                self.flag_container_must_host = True
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
                     self.add_udp2raw_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote)
@@ -335,10 +353,12 @@ class Parser:
             self.result_container_prebootstrap.append('PostUp=rm {}'.format(tmp_filepath))
 
         if self.result_container_prebootstrap or self.result_container_postbootstrap:
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
-            ))
-            if self.container_expose_port:
+            if not self.flag_container_must_host:
+                self.result_postup.append('PostUp={}'.format(
+                    self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
+                ))
+
+            if not self.flag_container_must_host and self.container_expose_port:
                 cmd_ports = ["-p {}:{}/{}".format(this_port['port'], this_port['port'], this_port['mode']) for this_port in self.container_expose_port]
                 cmd_ports = ' '.join(cmd_ports)
             else:
@@ -355,16 +375,24 @@ class Parser:
             self.result_postdown.append('PostDown={}'.format(
                 self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name()))
             ))
-            self.result_postdown.append('PostDown={}'.format(
-                self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
-            ))
+
+            if not self.flag_container_must_host:
+                self.result_postdown.append('PostDown={}'.format(
+                    self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
+                ))
 
             self.result_postup.extend(self.result_container_prebootstrap)
 
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
-                    path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name()))
-            ))
+            if not self.flag_container_must_host:
+                self.result_postup.append('PostUp={}'.format(
+                    self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                        path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name()))
+                ))
+            else:
+                self.result_postup.append('PostUp={}'.format(
+                    self.get_podman_cmd_with('podman exec -t -e GATEWAY_IP=127.0.0.1 -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                        self.wg_port, self.get_container_name()))
+                ))
 
             self.result_postup.extend(self.result_container_postbootstrap)
 
@@ -404,9 +432,13 @@ class Parser:
 
                         if addr_host == "gateway":
                             tunnel_addr = ""
-                            self.result_postup.append("PostUp=CT_GATEWAY=$({}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
-                                self.get_podman_cmd_with('/usr/bin/python3 {} {}'.format(path_get_gateway, self.get_container_network_name())),
-                                self.wg_name, current_pubkey, addr_port))
+                            if not self.flag_container_must_host:
+                                self.result_postup.append("PostUp=CT_GATEWAY=$({}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
+                                    self.get_podman_cmd_with('/usr/bin/python3 {} {}'.format(path_get_gateway, self.get_container_network_name())),
+                                    self.wg_name, current_pubkey, addr_port))
+                            else:
+                                self.result_postup.append("PostUp=wg set {} peer {} endpoint 127.0.0.1:{}".format(
+                                    self.wg_name, current_pubkey, addr_port))
                     elif tunnel_addr:
                         tunnel_addr = "127.0.0.1:{}".format(tunnel_addr)
 
