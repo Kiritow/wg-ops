@@ -64,28 +64,28 @@ class Parser:
 
     def add_expose(self, expose_port, mode='udp'):
         self.container_expose_port.append({
-            "port": expose_port,
+            "port": int(expose_port),
             "mode": mode,
         })
 
     def add_muxer(self, listen_port, forward_start, forward_size):
         self.container_bootstrap.append({
             "type": "mux",
-            "listen": listen_port,
-            "forward": forward_start,
-            "size": forward_size,
+            "listen": int(listen_port),
+            "forward": int(forward_start),
+            "size": int(forward_size),
         })
 
     def add_gost_server(self, listen_port):
         self.container_bootstrap.append({
             "type": "gost-server",
-            "listen": listen_port,
+            "listen": int(listen_port),
         })
 
     def add_gost_client(self, listen_port, tunnel_remote):
         self.container_bootstrap.append({
             "type": "gost-client",
-            "listen": listen_port,
+            "listen": int(listen_port),
             "remote": tunnel_remote,
         })
 
@@ -94,7 +94,7 @@ class Parser:
 
         self.container_bootstrap.append({
             "type": "udp2raw-server",
-            "listen": listen_port,
+            "listen": int(listen_port),
             "password": tunnel_password,
             "id": conf_uuid,
         })
@@ -113,7 +113,7 @@ class Parser:
 
         self.container_bootstrap.append({
             "type": "udp2raw-client",
-            "listen": listen_port,
+            "listen": int(listen_port),
             "password": tunnel_password,
             "remote": remote_addr,
             "id": conf_uuid,
@@ -142,7 +142,7 @@ class Parser:
 
         self.container_bootstrap.append({
             "type": "trojan-server",
-            "listen": listen_port,
+            "listen": int(listen_port),
             "password": tunnel_password,
             "cert": cert_uuid,
         })
@@ -150,10 +150,10 @@ class Parser:
     def add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
         self.container_bootstrap.append({
             "type": "trojan-client",
-            "listen": listen_port,
+            "listen": int(listen_port),
             "password": tunnel_password,
             "remote": remote_addr,
-            "target": target_port,
+            "target": int(target_port),
             "sni": ssl_sni,
         })
 
@@ -228,7 +228,7 @@ class Parser:
             elif line.startswith('#udp2raw-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
                 tunnel_passwd = parts[2]
 
                 if self.podman_user:
@@ -240,7 +240,7 @@ class Parser:
             elif line.startswith('#udp2raw-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
                 tunnel_remote = parts[2]
                 tunnel_passwd = parts[3]
 
@@ -271,14 +271,14 @@ class Parser:
             elif line.startswith('#gost-server '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
 
                 self.add_gost_server(tunnel_port)
                 self.add_expose(tunnel_port, mode='tcp')
             elif line.startswith('#gost-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
                 tunnel_remote = parts[2]
 
                 self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
@@ -305,7 +305,7 @@ class Parser:
             elif line.startswith('#trojan-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
                 tunnel_passwd = parts[2]
                 tunnel_cert = parts[3]
                 tunnel_key = parts[4]
@@ -315,10 +315,10 @@ class Parser:
             elif line.startswith('#trojan-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_port = parts[1]
+                tunnel_port = int(parts[1])
                 tunnel_passwd = parts[2]
                 tunnel_remote = parts[3]
-                tunnel_target = parts[4]
+                tunnel_target = int(parts[4])
 
                 self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
                 self.add_trojan_client(tunnel_port, tunnel_passwd, tunnel_remote, tunnel_target)
@@ -329,11 +329,11 @@ class Parser:
             elif line.startswith('#trojan-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
-                tunnel_mux = parts[1]
-                tunnel_port = parts[2]
+                tunnel_mux = int(parts[1])
+                tunnel_port = int(parts[2])
                 tunnel_passwd = parts[3]
                 tunnel_remote = parts[4]
-                tunnel_target = parts[5]
+                tunnel_target = int(parts[5])
 
                 self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
@@ -435,14 +435,16 @@ class Parser:
             else:
                 current_lookup = ''
 
-            self.result_peers.append('[Peer]')
-
+            # pre-scan
             for line in this_peer_lines:
                 if line.startswith('PublicKey'):
                     current_pubkey =  '='.join(line.split('=')[1:])
                 if line.startswith('AllowedIPs'):
                     current_allowed = line.split('=')[1].strip().split(',') 
 
+            self.result_peers.append('[Peer]')
+
+            for line in this_peer_lines:
                 if not line.startswith('#'):
                     self.result_peers.append(line)
                     continue
@@ -455,7 +457,7 @@ class Parser:
                     if ":" in tunnel_addr:
                         addr_parts = tunnel_addr.split(':')
                         addr_host = addr_parts[0]
-                        addr_port = addr_parts[1]
+                        addr_port = int(addr_parts[1])
 
                         if addr_host == "gateway":
                             tunnel_addr = ""
@@ -466,7 +468,6 @@ class Parser:
                                 self.result_postup.append("PostUp=CT_IP=$({}); wg set {} peer {} endpoint $CT_IP:{}".format(
                                     self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name())),
                                     self.wg_name, current_pubkey, addr_port))
-
                     elif tunnel_addr:
                         tunnel_addr = "127.0.0.1:{}".format(tunnel_addr)
 
