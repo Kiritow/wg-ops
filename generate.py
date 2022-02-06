@@ -8,6 +8,7 @@ import base64
 
 
 path_get_gateway = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-gateway.py')
+path_get_ip = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-ip.py')
 path_bin_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin')
 path_app_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'app')
 
@@ -434,8 +435,8 @@ class Parser:
                         if addr_host == "gateway":
                             tunnel_addr = ""
                             if not self.flag_container_must_host:
-                                self.result_postup.append("PostUp=CT_GATEWAY=$({}); wg set {} peer {} endpoint $CT_GATEWAY:{}".format(
-                                    self.get_podman_cmd_with('/usr/bin/python3 {} {}'.format(path_get_gateway, self.get_container_network_name())),
+                                self.result_postup.append("PostUp=CT_IP=$({}); wg set {} peer {} endpoint $CT_IP:{}".format(
+                                    self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name())),
                                     self.wg_name, current_pubkey, addr_port))
                             else:
                                 self.result_postup.append("PostUp=wg set {} peer {} endpoint 127.0.0.1:{}".format(
