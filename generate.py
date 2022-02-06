@@ -7,11 +7,14 @@ import json
 import base64
 
 
-path_get_gateway = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-gateway.py')
-path_get_ip = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-ip.py')
-path_get_lan_ip = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'tools/get-lan-ip.py')
-path_bin_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'bin')
-path_app_dir = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'app')
+wgop_basepath = os.path.dirname(os.path.realpath(sys.argv[0]))
+
+path_get_gateway = os.path.join(wgop_basepath, 'tools/get-gateway.py')
+path_get_ip = os.path.join(wgop_basepath, 'tools/get-ip.py')
+path_get_lan_ip = os.path.join(wgop_basepath, 'tools/get-lan-ip.py')
+path_bin_dir = os.path.join(wgop_basepath, 'bin')
+path_app_dir = os.path.join(wgop_basepath, 'app')
+
 
 class Parser:
     def __init__(self):
