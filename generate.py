@@ -269,6 +269,7 @@ class Parser:
                 tunnel_port = parts[1]
 
                 self.add_gost_server(tunnel_port)
+                self.add_expose(tunnel_port)
             elif line.startswith('#gost-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -297,7 +298,7 @@ class Parser:
                 tunnel_key = parts[4]
 
                 self.add_trojan_server(tunnel_port, tunnel_passwd, tunnel_cert, tunnel_key)
-                self.add_expose(tunnel_port)
+                self.add_expose(tunnel_port, mode='tcp')
             elif line.startswith('#trojan-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
