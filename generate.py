@@ -279,6 +279,10 @@ class Parser:
 
                 self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
                 self.add_gost_client(tunnel_port, tunnel_remote)
+
+                if self.podman_user:
+                    self.add_expose(tunnel_port)
+                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             elif line.startswith('#gost-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -290,6 +294,10 @@ class Parser:
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
                     self.add_gost_client(tunnel_port + 1 + mux_idx, tunnel_remote)
+                
+                if self.podman_user:
+                    self.add_expose(tunnel_port)
+                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             elif line.startswith('#trojan-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -310,6 +318,10 @@ class Parser:
 
                 self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
                 self.add_trojan_client(tunnel_port, tunnel_passwd, tunnel_remote, tunnel_target)
+
+                if self.podman_user:
+                    self.add_expose(tunnel_port)
+                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             elif line.startswith('#trojan-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -323,6 +335,10 @@ class Parser:
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
                     self.add_trojan_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote, tunnel_target)
+                
+                if self.podman_user:
+                    self.add_expose(tunnel_port)
+                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             else:
                 sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
 
