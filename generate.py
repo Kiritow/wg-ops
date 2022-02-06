@@ -274,7 +274,7 @@ class Parser:
                 tunnel_port = parts[1]
 
                 self.add_gost_server(tunnel_port)
-                self.add_expose(tunnel_port)
+                self.add_expose(tunnel_port, mode='tcp')
             elif line.startswith('#gost-client '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
