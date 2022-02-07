@@ -511,19 +511,8 @@ OPTIONS
     -h Display this help and quit.
     -k Output generated config to standard output
     -o <filename> Output generated config to file. Default is {source_filename}.gen
-TAGS
-    #enable-bbr
-    #enable-forward
-    #iptables-forward
-    #route-to table
-    #route-from table
-    #udp2raw-server name port password
-    #udp2raw-client name port remote password
-    #udp2raw-client-mux name mux port remote password
-    #gost-server name port
-    #gost-client name port remote
-    #gost-client-mux name mux port remote
-    #use-tunnel name
+HELP
+    For latest help please view https://github.com/Kiritow/wg-ops
 ''')
         exit(0)
 
