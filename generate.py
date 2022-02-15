@@ -24,13 +24,17 @@ path_bin_dir = os.path.join(wgop_basepath, 'bin')
 path_app_dir = os.path.join(wgop_basepath, 'app')
 
 
+def errprint(msg):
+    sys.stderr.write("{}\n".format(msg))
+
+
 def get_subject_name_from_cert(cert_path):
     try:
         with open(cert_path, 'rb') as f:
             cert = x509.load_pem_x509_certificate(f.read())
         return cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
     except Exception:
-        print(traceback.format_exc())
+        errprint(traceback.format_exc())
         return ""
 
 
@@ -45,7 +49,7 @@ def get_pem_from_rsa_keypair(private_key, public_key):
         pripem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()).encode()
+            encryption_algorithm=serialization.NoEncryption()).decode().replace('\n', '.')
     else:
         pripem = None
 
@@ -53,18 +57,18 @@ def get_pem_from_rsa_keypair(private_key, public_key):
         pubpem = public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).encode()
+        ).decode().replace('\n', '.')
     else:
         pubpem = private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).encode()
+        ).decode().replace('\n', '.')
 
     return pripem, pubpem
 
 
 def get_rsa_keypair_from_pem(private_pem):
-    private_key = serialization.load_pem_private_key(private_pem.encode(), password=None)
+    private_key = serialization.load_pem_private_key(private_pem.replace('.', '\n').encode(), password=None)
     public_key = private_key.public_key()
     return private_key, public_key
 
@@ -74,7 +78,7 @@ def rsa_sign_base64(private_key, bytes_data):
         mgf=padding.MGF1(hashes.SHA256()),
         salt_length=padding.PSS.MAX_LENGTH,
     ), hashes.SHA256())
-    
+
     return base64.b64encode(signature).decode()
 
 
@@ -154,16 +158,16 @@ class Parser:
             return "su - {} -c '{}'".format(self.podman_user, command)
         else:
             return command
-    
+
     def registry_resolve(self, client_name):
         if not self.registry_domain:
-            sys.stderr.write('[ERROR] Cannot query from registry, domain not specified\n')
+            errprint('[ERROR] Cannot query from registry, domain not specified')
             exit(1)
         if not self.registry_client_name:
-            sys.stderr.write('[ERROR] No registry client name found.\n')
+            errprint('[ERROR] No registry client name found.')
             exit(1)
 
-        sys.stderr.write('Resolving client {} from registry ({})...\n'.format(client_name, self.registry_domain))
+        errprint('Resolving client {} from registry ({})...'.format(client_name, self.registry_domain))
         try:
             res = requests.get('{}/query'.format(self.registry_domain), params={
                 "name": client_name,
@@ -172,49 +176,50 @@ class Parser:
             remote_result = res.json()
             remote_peers = remote_result['peers']
             if self.registry_client_name not in remote_peers:
-                sys.stderr.write('This client ({}) is not accepted by {}\n'.format(self.registry_client_name, client_name))
+                errprint('This client ({}) is not accepted by {}'.format(self.registry_client_name, client_name))
                 return {}
 
             remote_config = rsa_decrypt_base64(remote_peers[self.registry_client_name])
             return json.loads(remote_config)
         except Exception:
-            print(traceback.format_exc())
-            sys.stderr.write('Exception happened during registry client resolve\n')
+            errprint(traceback.format_exc())
+            errprint('Exception happened during registry client resolve')
             return {}
 
     def registry_upload(self, content):
         if not self.registry_domain:
-            sys.stderr.write('[ERROR] Cannot query from registry, domain not specified\n')
+            errprint('[ERROR] Cannot query from registry, domain not specified')
             exit(1)
         if not self.registry_client_name:
-            sys.stderr.write('[ERROR] No registry client name found.\n')
+            errprint('[ERROR] No registry client name found.')
             exit(1)
 
-        sys.stderr.write('Registering this client ({}) with registry ({})...\n'.format(self.registry_client_name, self.registry_domain))
+        errprint('Registering this client ({}) with registry ({})...'.format(self.registry_client_name, self.registry_domain))
         try:
             res = requests.post('{}/register'.format(self.registry_domain), json=content)
             res = res.json()
 
-            sys.stderr.write('[REGISTRY] {}\n'.format(res['message']))
+            errprint('[REGISTRY] {}'.format(res['message']))
             if res['code'] < 0:
                 return False
             else:
                 return True
         except Exception:
-            print(traceback.format_exc())
-            sys.stderr.write('Exception happened during registry register\n')
+            errprint(traceback.format_exc())
+            errprint('Exception happened during registry register')
             return False
-    
+
     def registry_ensure(self):
         private_pem, public_pem = get_pem_from_rsa_keypair(None, self.local_public_key)
-        public_pem = public_pem.replace('\n', '.')
-
-        self.registry_upload({
+        can_ensure = self.registry_upload({
             "name": self.registry_client_name,
             "pubkey": public_pem,
             "wgkey": self.wg_pubkey,
             "sig": rsa_sign_base64(self.local_private_key, self.wg_pubkey.encode())
         })
+        if not can_ensure:
+            errprint('[ERROR] Cannot ensure registry connection, please check your network.')
+            exit(1)
 
     def add_expose(self, expose_port, mode='udp'):
         self.container_expose_port.append({
@@ -239,7 +244,7 @@ class Parser:
             "type": "gost",
             "listen": int(listen_port),
         }
-    
+
     def add_gost_client_with(self, remote_config):
         self.local_autogen_nextport += 1
         tunnel_name = "gen{}{}".format(self.wg_hash[:8], self.local_autogen_nextport)
@@ -393,7 +398,7 @@ class Parser:
 
     def parse(self, content):
         self.wg_hash = sha256(content.encode()).hexdigest()
-        sys.stderr.write('[INFO] config hash: {}\n'.format(self.wg_hash))
+        errprint('[INFO] config hash: {}'.format(self.wg_hash))
 
         # parse input
         input_mode = ''
@@ -403,10 +408,10 @@ class Parser:
             if line.startswith('#store:key'):
                 parts = line.split(' ')[1:]
                 private_pem = parts[0]
-                private_pem = private_pem.replace('.', '\n')
+                private_pem = base64.b64decode(private_pem).decode()
 
                 self.local_private_key, self.local_public_key = get_rsa_keypair_from_pem(private_pem)
-                sys.stderr.write('Loaded 1 PEM private key\n')
+                errprint('Loaded 1 PEM private key')
                 continue
 
             if line.startswith('[Interface]'):
@@ -425,11 +430,11 @@ class Parser:
             elif input_mode == 'peer':
                 current_peer.append(line)
             else:
-                sys.stderr.write('[WARN] Unexpected line: {}\n'.format(line))
+                errprint('[WARN] Unexpected line: {}'.format(line))
 
         if current_peer:
             self.input_peer.append(current_peer)
-    
+
     def compile_interface(self):
         self.result_interface.append('[Interface]')
 
@@ -443,9 +448,9 @@ class Parser:
                 self.wg_mtu = int(line.split('=')[1])
             if line.startswith('PrivateKey'):
                 wg_private_key = '='.join(line.split('=')[1:]).strip()
-                self.wg_pubkey = subprocess.check_output(["wg", "pubkey"], input=wg_private_key.encode()).strip()
+                self.wg_pubkey = subprocess.check_output(["wg", "pubkey"], input=wg_private_key.encode()).decode().strip()
 
-            if line.startswith('#registry'):
+            if line.startswith('#registry '):
                 parts = line.split(' ')[1:]
                 reg_name = parts[0]
 
@@ -455,7 +460,7 @@ class Parser:
                 reg_name = parts[0]
 
                 self.registry_domain = "http://{}".format(reg_name)
-                sys.stderr.write('[WARN] Insecure registry may have potential danger, only use for test purpose.\n')
+                errprint('[WARN] Insecure registry may have potential danger, only use for test purpose.')
             elif line.startswith('#name'):
                 parts = line.split(' ')[1:]
                 client_name = parts[0]
@@ -486,26 +491,25 @@ class Parser:
         # registry init
         if self.flag_require_registry:
             if not self.local_private_key:
-                sys.stderr.write('registry required but no existing private key found, generating new...\n')
+                errprint('registry required but no existing private key found, generating new...')
 
                 self.local_private_key, self.local_public_key = generate_rsa_keypair()
                 private_pem, public_pem = get_pem_from_rsa_keypair(self.local_private_key, self.local_public_key)
-                private_pem = private_pem.replace('\n', '.')
 
                 if self.flag_allow_modify:
-                    sys.stderr.write('[MODIFY] appending to {}...\n'.format(self.opt_source_path))
+                    errprint('[MODIFY] appending to {}...'.format(self.opt_source_path))
                     with open(self.opt_source_path, 'a') as f:
-                        f.write('\n#store:key {}\n'.format(private_pem))
-                    sys.stderr.write('[MODIFY] source file modifed, please re-run to continue.\n')
+                        f.write('\n#store:key {}\n'.format(base64.b64encode(private_pem.encode()).decode()))
+                    errprint('[MODIFY] source file modifed, please re-run to continue.')
                 else:
-                    sys.stderr.write('[ERROR] cannot modify source file, please re-run with -i option.\n')
+                    errprint('[ERROR] cannot modify source file, please re-run with -i option.')
                 exit(1)
-        
+
             self.registry_ensure()
 
             # registry fetch connect-to
             for peer_client_name in unresolved_peers:
-                sys.stderr.write('Resolving connect-to {}...\n'.format(peer_client_name))
+                errprint('Resolving connect-to {}...'.format(peer_client_name))
                 peer_config = self.registry_resolve(peer_client_name)
                 {
                     "udp2raw": self.add_udp2raw_client_with,
@@ -533,7 +537,7 @@ class Parser:
                 table_name = parts[0]
 
                 self.result_postup.append('PostUp=ip route add 0.0.0.0/0 dev {} table {}'.format(self.wg_name, table_name))
-                sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+                errprint('[WARN] Please ensure custom route table {} exists.'.format(table_name))
             elif line.startswith('#route-from'):
                 self.flag_is_route_lookup = True
 
@@ -541,7 +545,7 @@ class Parser:
                 table_name = parts[0]
 
                 self.lookup_table = table_name
-                sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+                errprint('[WARN] Please ensure custom route table {} exists.'.format(table_name))
             elif line.startswith('#podman-user'):
                 parts = line.split(' ')[1:]
                 user_name = parts[0]
@@ -554,7 +558,7 @@ class Parser:
                 tunnel_passwd = parts[2]
 
                 if self.podman_user:
-                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    errprint('[Error] udp2raw tunnel need root as podman user, got {}'.format(self.podman_user))
                     exit(1)
 
                 self.add_udp2raw_server(tunnel_name, tunnel_port, tunnel_passwd)
@@ -567,7 +571,7 @@ class Parser:
                 tunnel_passwd = parts[3]
 
                 if self.podman_user:
-                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    errprint('[Error] udp2raw tunnel need root as podman user, got {}'.format(self.podman_user))
                     exit(1)
 
                 self.add_udp2raw_client(tunnel_name, tunnel_port, tunnel_passwd, tunnel_remote)
@@ -580,7 +584,7 @@ class Parser:
                 tunnel_passwd = parts[4]
 
                 if self.podman_user:
-                    sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
+                    errprint('[Error] udp2raw tunnel need root as podman user, got {}'.format(self.podman_user))
                     exit(1)
 
                 self.add_udp2raw_client_mux(tunnel_name, tunnel_mux, tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote)
@@ -638,15 +642,15 @@ class Parser:
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
                     self.add_trojan_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote, tunnel_target)
-                
+
                 if self.podman_user:
                     self.add_expose(tunnel_port)
                     self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             else:
-                sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
+                errprint('[WARN] comment or unknown hint: {}'.format(line))
 
         if not self.wg_mtu:
-            sys.stderr.write('[WARN] MTU not detected, using suggested mtu value (1280).\n')
+            errprint('[WARN] MTU not detected, using suggested mtu value (1280).')
             self.result_interface.append('MTU=1280')
 
         if self.container_bootstrap:
@@ -724,7 +728,7 @@ class Parser:
 
     def compile_peers(self):
         if self.flag_is_route_forward and len(self.input_peer) > 1:
-            sys.stderr.write('[WARN] route-forward should used with ONLY one peer.')
+            errprint('[WARN] route-forward should used with ONLY one peer.')
 
         for this_peer_idx, this_peer_lines in enumerate(self.input_peer):
             current_pubkey = ''
@@ -778,9 +782,9 @@ class Parser:
 
                     if table_name != self.lookup_table:
                         current_lookup = table_name
-                        sys.stderr.write('[WARN] Please ensure custom route table {} exists.\n'.format(table_name))
+                        errprint('[WARN] Please ensure custom route table {} exists.'.format(table_name))
                 else:
-                    sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
+                    errprint('[WARN] comment or unknown hint: {}'.format(line))
 
             if self.flag_is_route_forward and this_peer_idx == 0:
                 self.result_postup.insert(0, 'PostUp=wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
@@ -833,10 +837,10 @@ HELP
     if '-k' in opts or ('-o' in opts and opts['-o'] == '-'):
         print(parser.get_result())
     elif '-o' in opts:
-        sys.stderr.write('Saving to {}...\n'.format(opts['-o']))
+        errprint('Saving to {}...'.format(opts['-o']))
         with open(opts['-o'], 'w') as f:
             f.write(parser.get_result())
     else:
-        sys.stderr.write('Saving to {}.gen...\n'.format(filename))
+        errprint('Saving to {}.gen...'.format(filename))
         with open('{}.gen'.format(filename), 'w') as f:
             f.write(parser.get_result())
