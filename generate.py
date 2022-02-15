@@ -114,17 +114,32 @@ class Parser:
         self.flag_is_route_forward = False
         self.flag_is_route_lookup = False
         self.flag_container_must_host = False
+        self.flag_require_registry = False
+        self.flag_allow_modify = False
+
+        # opts
+        self.opt_source_path = ''
 
         # vars
         self.wg_name = '%i'
         self.wg_port = 0
         self.wg_mtu = 0
-        self.idx_tunnels = {}
+        self.wg_pubkey = ''
+        self.wg_hash = ''
+        self.registry_domain = ''
+        self.registry_client_name = ''
+        self.local_private_key = None
+        self.local_public_key = None
+        self.local_autogen_nextport = 29100
+        self.pending_peers = []
+        self.pending_accepts = []
+        self.tunnel_local_endpoint = {}
+        self.tunnel_server_reports = {}
         self.lookup_table = ''
         self.container_expose_port = []
         self.container_bootstrap = []
         self.podman_user = ''
-    
+
     def get_container_network_name(self):
         if self.flag_container_must_host:
             return "host"
@@ -139,6 +154,67 @@ class Parser:
             return "su - {} -c '{}'".format(self.podman_user, command)
         else:
             return command
+    
+    def registry_resolve(self, client_name):
+        if not self.registry_domain:
+            sys.stderr.write('[ERROR] Cannot query from registry, domain not specified\n')
+            exit(1)
+        if not self.registry_client_name:
+            sys.stderr.write('[ERROR] No registry client name found.\n')
+            exit(1)
+
+        sys.stderr.write('Resolving client {} from registry ({})...\n'.format(client_name, self.registry_domain))
+        try:
+            res = requests.get('{}/query'.format(self.registry_domain), params={
+                "name": client_name,
+            })
+
+            remote_result = res.json()
+            remote_peers = remote_result['peers']
+            if self.registry_client_name not in remote_peers:
+                sys.stderr.write('This client ({}) is not accepted by {}\n'.format(self.registry_client_name, client_name))
+                return {}
+
+            remote_config = rsa_decrypt_base64(remote_peers[self.registry_client_name])
+            return json.loads(remote_config)
+        except Exception:
+            print(traceback.format_exc())
+            sys.stderr.write('Exception happened during registry client resolve\n')
+            return {}
+
+    def registry_upload(self, content):
+        if not self.registry_domain:
+            sys.stderr.write('[ERROR] Cannot query from registry, domain not specified\n')
+            exit(1)
+        if not self.registry_client_name:
+            sys.stderr.write('[ERROR] No registry client name found.\n')
+            exit(1)
+
+        sys.stderr.write('Registering this client ({}) with registry ({})...\n'.format(self.registry_client_name, self.registry_domain))
+        try:
+            res = requests.post('{}/register'.format(self.registry_domain), json=content)
+            res = res.json()
+
+            sys.stderr.write('[REGISTRY] {}\n'.format(res['message']))
+            if res['code'] < 0:
+                return False
+            else:
+                return True
+        except Exception:
+            print(traceback.format_exc())
+            sys.stderr.write('Exception happened during registry register\n')
+            return False
+    
+    def registry_ensure(self):
+        private_pem, public_pem = get_pem_from_rsa_keypair(None, self.local_public_key)
+        public_pem = public_pem.replace('\n', '.')
+
+        self.registry_upload({
+            "name": self.registry_client_name,
+            "pubkey": public_pem,
+            "wgkey": self.wg_pubkey,
+            "sig": rsa_sign_base64(self.local_private_key, self.wg_pubkey.encode())
+        })
 
     def add_expose(self, expose_port, mode='udp'):
         self.container_expose_port.append({
@@ -316,10 +392,23 @@ class Parser:
         })
 
     def parse(self, content):
+        self.wg_hash = sha256(content.encode()).hexdigest()
+        sys.stderr.write('[INFO] config hash: {}\n'.format(self.wg_hash))
+
         # parse input
         input_mode = ''
         current_peer = []
-        for line in content:
+        for line in content.split('\n'):
+            # tags to filter out (never enter compile module)
+            if line.startswith('#store:key'):
+                parts = line.split(' ')[1:]
+                private_pem = parts[0]
+                private_pem = private_pem.replace('.', '\n')
+
+                self.local_private_key, self.local_public_key = get_rsa_keypair_from_pem(private_pem)
+                sys.stderr.write('Loaded 1 PEM private key\n')
+                continue
+
             if line.startswith('[Interface]'):
                 input_mode = 'interface'
                 continue
@@ -336,7 +425,7 @@ class Parser:
             elif input_mode == 'peer':
                 current_peer.append(line)
             else:
-                sys.stderr.write('[WARN] Incorrect mode detected with line: {}\n'.format(line))
+                sys.stderr.write('[WARN] Unexpected line: {}\n'.format(line))
 
         if current_peer:
             self.input_peer.append(current_peer)
@@ -344,18 +433,93 @@ class Parser:
     def compile_interface(self):
         self.result_interface.append('[Interface]')
 
-        # compile interface
+        unresolved_peers = []
+
+        # pre-compile registry-related
         for line in self.input_interface:
             if line.startswith('ListenPort'):
                 self.wg_port = int(line.split('=')[1])
             if line.startswith('MTU'):
                 self.wg_mtu = int(line.split('=')[1])
+            if line.startswith('PrivateKey'):
+                wg_private_key = '='.join(line.split('=')[1:]).strip()
+                self.wg_pubkey = subprocess.check_output(["wg", "pubkey"], input=wg_private_key.encode()).strip()
 
+            if line.startswith('#registry'):
+                parts = line.split(' ')[1:]
+                reg_name = parts[0]
+
+                self.registry_domain = "https://{}".format(reg_name)
+            elif line.startswith('#registry-insecure'):
+                parts = line.split(' ')[1:]
+                reg_name = parts[0]
+
+                self.registry_domain = "http://{}".format(reg_name)
+                sys.stderr.write('[WARN] Insecure registry may have potential danger, only use for test purpose.\n')
+            elif line.startswith('#name'):
+                parts = line.split(' ')[1:]
+                client_name = parts[0]
+
+                self.registry_client_name = client_name
+                self.flag_require_registry = True
+            elif line.startswith('#connect-to'):
+                parts = line.split(' ')[1:]
+                target_name = parts[0]
+
+                unresolved_peers.append(target_name)
+                self.flag_require_registry = True
+            elif line.startswith('#accept-client'):
+                parts = line.split(' ')[1:]
+                tunnel_name = parts[0]
+                client_name = parts[1]
+                client_ip = parts[2]
+                client_allowed = parts[3]
+
+                self.pending_accepts.append({
+                    "tunnel": tunnel_name,
+                    "client": client_name,
+                    "ip": client_ip,
+                    "allowed": client_allowed,
+                })
+                self.flag_require_registry = True
+
+        # registry init
+        if self.flag_require_registry:
+            if not self.local_private_key:
+                sys.stderr.write('registry required but no existing private key found, generating new...\n')
+
+                self.local_private_key, self.local_public_key = generate_rsa_keypair()
+                private_pem, public_pem = get_pem_from_rsa_keypair(self.local_private_key, self.local_public_key)
+                private_pem = private_pem.replace('\n', '.')
+
+                if self.flag_allow_modify:
+                    sys.stderr.write('[MODIFY] appending to {}...\n'.format(self.opt_source_path))
+                    with open(self.opt_source_path, 'a') as f:
+                        f.write('\n#store:key {}\n'.format(private_pem))
+                    sys.stderr.write('[MODIFY] source file modifed, please re-run to continue.\n')
+                else:
+                    sys.stderr.write('[ERROR] cannot modify source file, please re-run with -i option.\n')
+                exit(1)
+        
+            self.registry_ensure()
+
+            # registry fetch connect-to
+            for peer_client_name in unresolved_peers:
+                sys.stderr.write('Resolving connect-to {}...\n'.format(peer_client_name))
+                peer_config = self.registry_resolve(peer_client_name)
+                {
+                    "udp2raw": self.add_udp2raw_client_with,
+                    "gost": self.add_gost_client_with,
+                    "trojan": self.add_trojan_client_with,
+                }.get(peer_config["type"], lambda x: x)(peer_config)
+
+        # compile interface
+        for line in self.input_interface:
             if not line.startswith('#'):
                 self.result_interface.append(line)
                 continue
 
-            if line.startswith('#enable-bbr'):
+            elif line.startswith('#enable-bbr'):
                 self.result_postup.append('PostUp=sysctl net.core.default_qdisc=fq\nPostUp=sysctl net.ipv4.tcp_congestion_control=bbr')
             elif line.startswith('#enable-forward'):
                 self.result_postup.append('PostUp=sysctl net.ipv4.ip_forward=1')
@@ -637,7 +801,7 @@ class Parser:
 
 
 if __name__ == "__main__":
-    opts, args = getopt.getopt(sys.argv[1:], 'hko:')
+    opts, args = getopt.getopt(sys.argv[1:], 'hiko:')
     opts = {p[0]: p[1] for p in opts}
 
     if '-h' in opts:
@@ -655,9 +819,13 @@ HELP
     filename = os.path.basename(filepath)
 
     with open(filepath, 'r') as f:
-        content = f.read().split('\n')
+        content = f.read()
 
     parser = Parser()
+    if '-i' in opts:
+        parser.flag_allow_modify = True
+        parser.opt_source_path = filepath
+
     parser.parse(content)
     parser.compile_interface()
     parser.compile_peers()
