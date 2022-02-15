@@ -49,7 +49,7 @@ def get_pem_from_rsa_keypair(private_key, public_key):
         pripem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()).decode().replace('\n', '.')
+            encryption_algorithm=serialization.NoEncryption()).decode()
     else:
         pripem = None
 
@@ -57,18 +57,18 @@ def get_pem_from_rsa_keypair(private_key, public_key):
         pubpem = public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).decode().replace('\n', '.')
+        ).decode()
     else:
         pubpem = private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).decode().replace('\n', '.')
+        ).decode()
 
     return pripem, pubpem
 
 
 def get_rsa_keypair_from_pem(private_pem):
-    private_key = serialization.load_pem_private_key(private_pem.replace('.', '\n').encode(), password=None)
+    private_key = serialization.load_pem_private_key(private_pem.encode(), password=None)
     public_key = private_key.public_key()
     return private_key, public_key
 
@@ -215,10 +215,11 @@ class Parser:
             "name": self.registry_client_name,
             "pubkey": public_pem,
             "wgkey": self.wg_pubkey,
+            "peers": {},
             "sig": rsa_sign_base64(self.local_private_key, self.wg_pubkey.encode())
         })
         if not can_ensure:
-            errprint('[ERROR] Cannot ensure registry connection, please check your network.')
+            errprint('[ERROR] registry ensure failed, please check your network.')
             exit(1)
 
     def add_expose(self, expose_port, mode='udp'):
@@ -438,6 +439,7 @@ class Parser:
     def compile_interface(self):
         self.result_interface.append('[Interface]')
 
+        filted_input_interface = []
         unresolved_peers = []
 
         # pre-compile registry-related
@@ -487,6 +489,8 @@ class Parser:
                     "allowed": client_allowed,
                 })
                 self.flag_require_registry = True
+            else:
+                filted_input_interface.append(line)
 
         # registry init
         if self.flag_require_registry:
@@ -518,7 +522,7 @@ class Parser:
                 }.get(peer_config["type"], lambda x: x)(peer_config)
 
         # compile interface
-        for line in self.input_interface:
+        for line in filted_input_interface:
             if not line.startswith('#'):
                 self.result_interface.append(line)
                 continue
