@@ -5,6 +5,14 @@ import getopt
 import uuid
 import json
 import base64
+import traceback
+import subprocess
+from hashlib import sha256
+
+import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
 
 wgop_basepath = os.path.dirname(os.path.realpath(sys.argv[0]))
@@ -14,6 +22,76 @@ path_get_ip = os.path.join(wgop_basepath, 'tools/get-ip.py')
 path_get_lan_ip = os.path.join(wgop_basepath, 'tools/get-lan-ip.py')
 path_bin_dir = os.path.join(wgop_basepath, 'bin')
 path_app_dir = os.path.join(wgop_basepath, 'app')
+
+
+def get_subject_name_from_cert(cert_path):
+    try:
+        with open(cert_path, 'rb') as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+        return cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
+    except Exception:
+        print(traceback.format_exc())
+        return ""
+
+
+def generate_rsa_keypair():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+
+def get_pem_from_rsa_keypair(private_key, public_key):
+    if private_key:
+        pripem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()).encode()
+    else:
+        pripem = None
+
+    if public_key:
+        pubpem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).encode()
+    else:
+        pubpem = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).encode()
+
+    return pripem, pubpem
+
+
+def get_rsa_keypair_from_pem(private_pem):
+    private_key = serialization.load_pem_private_key(private_pem.encode(), password=None)
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+
+def rsa_sign_base64(private_key, bytes_data):
+    signature = private_key.sign(bytes_data, padding.PSS(
+        mgf=padding.MGF1(hashes.SHA256()),
+        salt_length=padding.PSS.MAX_LENGTH,
+    ), hashes.SHA256())
+    
+    return base64.b64encode(signature).decode()
+
+
+def rsa_encrypt_base64(public_key, bytes_data):
+    return base64.b64encode(public_key.encrypt(bytes_data, padding.OAEP(
+        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        algorithm=hashes.SHA256(),
+        label=None
+    )))
+
+
+def rsa_decrypt_base64(private_key, data):
+    return private_key.decrypt(base64.b64decode(data), padding.OAEP(
+        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        algorithm=hashes.SHA256(),
+        label=None
+    ))
 
 
 class Parser:
