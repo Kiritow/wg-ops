@@ -154,20 +154,47 @@ class Parser:
             "size": int(forward_size),
         })
 
-    def add_gost_server(self, listen_port):
+    def add_gost_server(self, tunnel_name, listen_port):
         self.container_bootstrap.append({
             "type": "gost-server",
             "listen": int(listen_port),
         })
+        self.tunnel_server_reports[tunnel_name] = {
+            "type": "gost",
+            "listen": int(listen_port),
+        }
+    
+    def add_gost_client_with(self, remote_config):
+        self.local_autogen_nextport += 1
+        tunnel_name = "gen{}{}".format(self.wg_hash[:8], self.local_autogen_nextport)
+        self.add_gost_client(tunnel_name, self.local_autogen_nextport, "{}:{}".format(remote_config['ip'], remote_config['listen']))
 
-    def add_gost_client(self, listen_port, tunnel_remote):
+    def add_gost_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_remote):
+        if self.podman_user:
+            self.add_expose(listen_port)
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        else:
+            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self.add_muxer(listen_port, listen_port+1, mux_size)
+        for mux_idx in range(mux_size):
+            self._do_add_gost_client(listen_port + 1 + mux_idx, tunnel_remote)
+
+    def add_gost_client(self, tunnel_name, listen_port, tunnel_remote):
+        if self.podman_user:
+            self.add_expose(listen_port)
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        else:
+            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self._do_add_gost_client(listen_port, tunnel_remote)
+
+    def _do_add_gost_client(self, listen_port, tunnel_remote):
         self.container_bootstrap.append({
             "type": "gost-client",
             "listen": int(listen_port),
             "remote": tunnel_remote,
         })
 
-    def add_udp2raw_server(self, listen_port, tunnel_password):
+    def add_udp2raw_server(self, tunnel_name, listen_port, tunnel_password):
         conf_uuid = str(uuid.uuid4())
 
         self.container_bootstrap.append({
@@ -176,6 +203,11 @@ class Parser:
             "password": tunnel_password,
             "id": conf_uuid,
         })
+        self.tunnel_server_reports[tunnel_name] = {
+            "type": "udp2raw",
+            "listen": int(listen_port),
+            "password": tunnel_password,
+        }
 
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
 
@@ -185,8 +217,25 @@ class Parser:
         self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
-    
-    def add_udp2raw_client(self, listen_port, tunnel_password, remote_addr):
+
+    def add_udp2raw_client_with(self, remote_config):
+        self.local_autogen_nextport += 1
+        tunnel_name = "gen{}{}".format(self.wg_hash[:8], self.local_autogen_nextport)
+        self.add_udp2raw_client(tunnel_name, self.local_autogen_nextport, remote_config["password"], "{}:{}".format(remote_config['ip'], remote_config['listen']))
+
+    def add_udp2raw_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_password, remote_addr):
+        self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        self.flag_container_must_host = True
+        self.add_muxer(listen_port, listen_port+1, mux_size)
+        for mux_idx in range(mux_size):
+            self._do_add_udp2raw_client(listen_port + 1 + mux_idx, tunnel_password, remote_addr)
+
+    def add_udp2raw_client(self, tunnel_name, listen_port, tunnel_password, remote_addr):
+        self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        self.flag_container_must_host = True
+        self._do_add_udp2raw_client(listen_port, tunnel_password, remote_addr)
+
+    def _do_add_udp2raw_client(self, listen_port, tunnel_password, remote_addr):
         conf_uuid = str(uuid.uuid4())
 
         self.container_bootstrap.append({
@@ -206,7 +255,7 @@ class Parser:
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
 
-    def add_trojan_server(self, listen_port, tunnel_password, ssl_cert_path, ssl_key_path):
+    def add_trojan_server(self, tunnel_name, listen_port, tunnel_password, ssl_cert_path, ssl_key_path):
         cert_uuid = str(uuid.uuid4())
         cert_filepath = "/root/ssl/{}.cert".format(cert_uuid)
         key_filepath = "/root/ssl/{}.key".format(cert_uuid)
@@ -224,8 +273,39 @@ class Parser:
             "password": tunnel_password,
             "cert": cert_uuid,
         })
+        self.tunnel_server_reports[tunnel_name] = {
+            "type": "trojan",
+            "listen": int(listen_port),
+            "password": tunnel_password,
+            "target": int(self.wg_port),
+            "sni": get_subject_name_from_cert(ssl_cert_path),
+        }
 
-    def add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
+    def add_trojan_client_with(self, remote_config):
+        self.local_autogen_nextport += 1
+        tunnel_name = "gen{}{}".format(self.wg_hash[:8], self.local_autogen_nextport)
+        self.add_trojan_client(tunnel_name, self.local_autogen_nextport, remote_config["password"],
+            "{}:{}".format(remote_config["ip"], remote_config["listen"]), remote_config["target"], ssl_sni=remote_config["sni"])
+
+    def add_trojan_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
+        if self.podman_user:
+            self.add_expose(listen_port)
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        else:
+            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self.add_muxer(listen_port, listen_port+1, mux_size)
+        for mux_idx in range(mux_size):
+            self._do_add_trojan_client(listen_port + 1 + mux_idx, tunnel_password, remote_addr, target_port, ssl_sni)
+
+    def add_trojan_client(self, tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
+        if self.podman_user:
+            self.add_expose(listen_port)
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        else:
+            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self._do_add_trojan_client(listen_port, tunnel_password, remote_addr, target_port, ssl_sni)
+
+    def _do_add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_port, ssl_sni):
         self.container_bootstrap.append({
             "type": "trojan-client",
             "listen": int(listen_port),
@@ -313,7 +393,7 @@ class Parser:
                     sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
                     exit(1)
 
-                self.add_udp2raw_server(tunnel_port, tunnel_passwd)
+                self.add_udp2raw_server(tunnel_name, tunnel_port, tunnel_passwd)
                 self.flag_container_must_host = True
             elif line.startswith('#udp2raw-client '):
                 parts = line.split(' ')[1:]
@@ -326,9 +406,7 @@ class Parser:
                     sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
                     exit(1)
 
-                self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
-                self.add_udp2raw_client(tunnel_port, tunnel_passwd, tunnel_remote)
-                self.flag_container_must_host = True
+                self.add_udp2raw_client(tunnel_name, tunnel_port, tunnel_passwd, tunnel_remote)
             elif line.startswith('#udp2raw-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -341,17 +419,13 @@ class Parser:
                     sys.stderr.write('[Error] udp2raw tunnel need root as podman user, got {}\n'.format(self.podman_user))
                     exit(1)
 
-                self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
-                self.flag_container_must_host = True
-                self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
-                for mux_idx in range(tunnel_mux):
-                    self.add_udp2raw_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote)
+                self.add_udp2raw_client_mux(tunnel_name, tunnel_mux, tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote)
             elif line.startswith('#gost-server '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
                 tunnel_port = int(parts[1])
 
-                self.add_gost_server(tunnel_port)
+                self.add_gost_server(tunnel_name, tunnel_port)
                 self.add_expose(tunnel_port, mode='tcp')
             elif line.startswith('#gost-client '):
                 parts = line.split(' ')[1:]
@@ -359,12 +433,7 @@ class Parser:
                 tunnel_port = int(parts[1])
                 tunnel_remote = parts[2]
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
-                self.add_gost_client(tunnel_port, tunnel_remote)
-
-                if self.podman_user:
-                    self.add_expose(tunnel_port)
-                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
+                self.add_gost_client(tunnel_name, tunnel_port, tunnel_remote)
             elif line.startswith('#gost-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -372,14 +441,7 @@ class Parser:
                 tunnel_port = int(parts[2])
                 tunnel_remote = parts[3]
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
-                self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
-                for mux_idx in range(tunnel_mux):
-                    self.add_gost_client(tunnel_port + 1 + mux_idx, tunnel_remote)
-                
-                if self.podman_user:
-                    self.add_expose(tunnel_port)
-                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
+                self.add_gost_client_mux(tunnel_name, tunnel_mux, tunnel_port, tunnel_remote)
             elif line.startswith('#trojan-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -388,7 +450,7 @@ class Parser:
                 tunnel_cert = parts[3]
                 tunnel_key = parts[4]
 
-                self.add_trojan_server(tunnel_port, tunnel_passwd, tunnel_cert, tunnel_key)
+                self.add_trojan_server(tunnel_name, tunnel_port, tunnel_passwd, tunnel_cert, tunnel_key)
                 self.add_expose(tunnel_port, mode='tcp')
             elif line.startswith('#trojan-client '):
                 parts = line.split(' ')[1:]
@@ -398,12 +460,7 @@ class Parser:
                 tunnel_remote = parts[3]
                 tunnel_target = int(parts[4])
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
-                self.add_trojan_client(tunnel_port, tunnel_passwd, tunnel_remote, tunnel_target)
-
-                if self.podman_user:
-                    self.add_expose(tunnel_port)
-                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
+                self.add_trojan_client(tunnel_name, tunnel_port, tunnel_passwd, tunnel_remote, tunnel_target)
             elif line.startswith('#trojan-client-mux '):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -413,25 +470,25 @@ class Parser:
                 tunnel_remote = parts[4]
                 tunnel_target = int(parts[5])
 
-                self.idx_tunnels[tunnel_name] = "gateway:{}".format(tunnel_port)
+                self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(tunnel_port)
                 self.add_muxer(tunnel_port, tunnel_port+1, tunnel_mux)
                 for mux_idx in range(tunnel_mux):
                     self.add_trojan_client(tunnel_port + 1 + mux_idx, tunnel_passwd, tunnel_remote, tunnel_target)
                 
                 if self.podman_user:
                     self.add_expose(tunnel_port)
-                    self.idx_tunnels[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
+                    self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(tunnel_port)
             else:
                 sys.stderr.write('[WARN] comment or unknown hint: {}\n'.format(line))
 
         if not self.wg_mtu:
             sys.stderr.write('[WARN] MTU not detected, using suggested mtu value (1280).\n')
             self.result_interface.append('MTU=1280')
-        
+
         if self.container_bootstrap:
-            config_str = json.dumps(self.container_bootstrap)
+            config_str = json.dumps(self.container_bootstrap, ensure_ascii=False)
             config_gen = base64.b64encode(config_str.encode()).decode()
-            
+
             config_parts = []
             while len(config_gen) > 1024:
                 config_parts.append(config_gen[:1024])
@@ -531,7 +588,7 @@ class Parser:
                     parts = line.split(' ')[1:]
                     tunnel_name = parts[0]
 
-                    tunnel_addr = self.idx_tunnels[tunnel_name]
+                    tunnel_addr = self.tunnel_local_endpoint[tunnel_name]
                     if ":" in tunnel_addr:
                         addr_parts = tunnel_addr.split(':')
                         addr_host = addr_parts[0]
