@@ -618,7 +618,10 @@ class Parser:
                 parts = line.split(' ')[1:]
                 user_name = parts[0]
 
-                self.podman_user = user_name
+                if user_name == "root":
+                    errprint('[WARN] ignoring root as podman user.')
+                else:
+                    self.podman_user = user_name
             elif line.startswith('#udp2raw-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -770,6 +773,12 @@ class Parser:
             ))
 
             if not self.flag_container_must_host:
+                if not self.podman_user:
+                    self.result_postup.append("PostUp=CT_IP=$({}); iptables -A FORWARD -d $CT_IP -j ACCEPT; iptables -A INPUT -s $CT_IP -j ACCEPT".format(
+                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
+                    self.result_postdown.append("PostUp=CT_IP=$({}); iptables -D FORWARD -d $CT_IP -j ACCEPT; iptables -D INPUT -s $CT_IP -j ACCEPT".format(
+                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
+
                 self.result_postdown.append('PostDown={}'.format(
                     self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
                 ))
@@ -832,7 +841,7 @@ class Parser:
             # pre-scan
             for line in this_peer_lines:
                 if line.startswith('PublicKey'):
-                    current_pubkey =  '='.join(line.split('=')[1:])
+                    current_pubkey =  '='.join(line.split('=')[1:]).strip()
                 if line.startswith('AllowedIPs'):
                     current_allowed = line.split('=')[1].strip().split(',') 
 
