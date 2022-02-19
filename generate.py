@@ -768,17 +768,18 @@ class Parser:
                 self.get_podman_cmd_with('podman exec {} mkdir -p /root/ssl /root/runner /root/conf'.format(
                     self.get_container_name()))
             ))
+
+            if not self.flag_container_must_host and not self.podman_user:
+                    self.result_postup.append("PostUp=CT_IP=$({}); iptables -A FORWARD -d $CT_IP -j ACCEPT; iptables -A INPUT -s $CT_IP -j ACCEPT".format(
+                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
+                    self.result_postdown.append("PostDown=CT_IP=$({}); iptables -D FORWARD -d $CT_IP -j ACCEPT; iptables -D INPUT -s $CT_IP -j ACCEPT".format(
+                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
+
             self.result_postdown.append('PostDown={}'.format(
                 self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name()))
             ))
 
             if not self.flag_container_must_host:
-                if not self.podman_user:
-                    self.result_postup.append("PostUp=CT_IP=$({}); iptables -A FORWARD -d $CT_IP -j ACCEPT; iptables -A INPUT -s $CT_IP -j ACCEPT".format(
-                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
-                    self.result_postdown.append("PostUp=CT_IP=$({}); iptables -D FORWARD -d $CT_IP -j ACCEPT; iptables -D INPUT -s $CT_IP -j ACCEPT".format(
-                        self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
-
                 self.result_postdown.append('PostDown={}'.format(
                     self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
                 ))
