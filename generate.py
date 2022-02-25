@@ -749,6 +749,16 @@ class Parser:
             self.result_container_prebootstrap.append('PostUp=rm {}'.format(tmp_filepath))
 
         if self.result_container_prebootstrap or self.result_container_postbootstrap:
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman container exists {} && podman stop {} && podman rm {}; $(exit 0)'.format(
+                    self.get_container_name(), self.get_container_name(), self.get_container_name()))
+            ))
+
+            self.result_postup.append('PostUp={}'.format(
+                self.get_podman_cmd_with('podman network exists {} && podman network rm {}; $(exit 0)'.format(
+                    self.get_container_network_name(), self.get_container_network_name()))
+            ))
+
             if not self.flag_container_must_host:
                 self.result_postup.append('PostUp={}'.format(
                     self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
@@ -761,7 +771,7 @@ class Parser:
                 cmd_ports = ''
 
             self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman run --rm --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-runenv'.format(
+                self.get_podman_cmd_with('podman run --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-runenv'.format(
                     path_bin_dir, path_app_dir, cmd_ports, self.get_container_name(), self.get_container_network_name()))
             ))
             self.result_postup.append('PostUp={}'.format(
@@ -777,6 +787,10 @@ class Parser:
 
             self.result_postdown.append('PostDown={}'.format(
                 self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name()))
+            ))
+
+            self.result_postdown.append('PostDown={}'.format(
+                self.get_podman_cmd_with('podman rm {}'.format(self.get_container_name()))
             ))
 
             if not self.flag_container_must_host:
