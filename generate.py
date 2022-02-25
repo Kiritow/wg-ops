@@ -348,10 +348,10 @@ class Parser:
 
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
 
-        self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
+        self.result_container_postbootstrap.append('IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
-        self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
+        self.result_postdown.append("IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
 
@@ -386,10 +386,10 @@ class Parser:
 
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
 
-        self.result_container_postbootstrap.append('PostUp=IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
+        self.result_container_postbootstrap.append('IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
-        self.result_postdown.append("PostDown=IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
+        self.result_postdown.append("IPT_COMMANDS=$({}); IPT_COMMANDS=$(echo $IPT_COMMANDS | sed -e 's/-I /-D /g'); echo $IPT_COMMANDS; $IPT_COMMANDS".format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
 
@@ -398,11 +398,11 @@ class Parser:
         cert_filepath = "/root/ssl/{}.cert".format(cert_uuid)
         key_filepath = "/root/ssl/{}.key".format(cert_uuid)
 
-        self.result_container_prebootstrap.append('PostUp={}'.format(
-            self.get_podman_cmd_with('podman cp {} {}:{}'.format(ssl_cert_path, self.get_container_name(), cert_filepath))
+        self.result_container_prebootstrap.append(self.get_podman_cmd_with(
+            'podman cp {} {}:{}'.format(ssl_cert_path, self.get_container_name(), cert_filepath)
         ))
-        self.result_container_prebootstrap.append('PostUp={}'.format(
-            self.get_podman_cmd_with('podman cp {} {}:{}'.format(ssl_key_path, self.get_container_name(), key_filepath))
+        self.result_container_prebootstrap.append(self.get_podman_cmd_with(
+            'podman cp {} {}:{}'.format(ssl_key_path, self.get_container_name(), key_filepath)
         ))
 
         self.container_bootstrap.append({
@@ -592,19 +592,20 @@ class Parser:
                 continue
 
             elif line.startswith('#enable-bbr'):
-                self.result_postup.append('PostUp=sysctl net.core.default_qdisc=fq\nPostUp=sysctl net.ipv4.tcp_congestion_control=bbr')
+                self.result_postup.append('sysctl net.core.default_qdisc=fq')
+                self.result_postup.append('sysctl net.ipv4.tcp_congestion_control=bbr')
             elif line.startswith('#enable-forward'):
-                self.result_postup.append('PostUp=sysctl net.ipv4.ip_forward=1')
+                self.result_postup.append('sysctl net.ipv4.ip_forward=1')
             elif line.startswith('#iptables-forward'):
-                self.result_postup.append('PostUp=iptables -A FORWARD -i {} -j ACCEPT'.format(self.wg_name))
-                self.result_postdown.append('PostDown=iptables -D FORWARD -i {} -j ACCEPT'.format(self.wg_name))
+                self.result_postup.append('iptables -A FORWARD -i {} -j ACCEPT'.format(self.wg_name))
+                self.result_postdown.append('iptables -D FORWARD -i {} -j ACCEPT'.format(self.wg_name))
             elif line.startswith('#route-to'):
                 self.flag_is_route_forward = True
 
                 parts = line.split(' ')[1:]
                 table_name = parts[0]
 
-                self.result_postup.append('PostUp=ip route add 0.0.0.0/0 dev {} table {}'.format(self.wg_name, table_name))
+                self.result_postup.append('ip route add 0.0.0.0/0 dev {} table {}'.format(self.wg_name, table_name))
                 errprint('[WARN] Please ensure custom route table {} exists.'.format(table_name))
             elif line.startswith('#route-from'):
                 self.flag_is_route_lookup = True
@@ -737,31 +738,29 @@ class Parser:
             tmp_base64_filepath = "/tmp/wg-op-container-bootstrap-{}.data".format(self.wg_name)
             tmp_filepath = "/tmp/wg-op-container-bootstrap-{}.json".format(self.wg_name)
 
-            self.result_postup.append('PostUp=rm -f {}'.format(tmp_base64_filepath))
+            self.result_postup.append('rm -f {}'.format(tmp_base64_filepath))
             for this_config_line in config_parts:
-                self.result_postup.append('PostUp=echo {} >> {}'.format(this_config_line, tmp_base64_filepath))
-            self.result_postup.append('PostUp=base64 -d {} > {}'.format(tmp_base64_filepath, tmp_filepath))
-            self.result_postup.append('PostUp=rm {}'.format(tmp_base64_filepath))
+                self.result_postup.append('echo {} >> {}'.format(this_config_line, tmp_base64_filepath))
+            self.result_postup.append('base64 -d {} > {}'.format(tmp_base64_filepath, tmp_filepath))
+            self.result_postup.append('rm {}'.format(tmp_base64_filepath))
 
-            self.result_container_prebootstrap.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman cp {} {}:/root/conf/bootstrap.json'.format(tmp_filepath, self.get_container_name()))
+            self.result_container_prebootstrap.append(self.get_podman_cmd_with(
+                'podman cp {} {}:/root/conf/bootstrap.json'.format(tmp_filepath, self.get_container_name())
             ))
-            self.result_container_prebootstrap.append('PostUp=rm {}'.format(tmp_filepath))
+            self.result_container_prebootstrap.append('rm {}'.format(tmp_filepath))
 
         if self.result_container_prebootstrap or self.result_container_postbootstrap:
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman container exists {} && podman stop {} && podman rm {}; $(exit 0)'.format(
-                    self.get_container_name(), self.get_container_name(), self.get_container_name()))
+            self.result_postup.append(self.get_podman_cmd_with(
+                'podman container exists {} && podman stop {} && podman rm {}; $(exit 0)'.format(self.get_container_name(), self.get_container_name(), self.get_container_name())
             ))
 
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman network exists {} && podman network rm {}; $(exit 0)'.format(
-                    self.get_container_network_name(), self.get_container_network_name()))
+            self.result_postup.append(self.get_podman_cmd_with(
+                'podman network exists {} && podman network rm {}; $(exit 0)'.format(self.get_container_network_name(), self.get_container_network_name())
             ))
 
             if not self.flag_container_must_host:
-                self.result_postup.append('PostUp={}'.format(
-                    self.get_podman_cmd_with('podman network create {}'.format(self.get_container_network_name()))
+                self.result_postup.append(self.get_podman_cmd_with(
+                    'podman network create {}'.format(self.get_container_network_name())
                 ))
 
             if not self.flag_container_must_host and self.container_expose_port:
@@ -770,50 +769,41 @@ class Parser:
             else:
                 cmd_ports = ''
 
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman run --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-runenv'.format(
-                    path_bin_dir, path_app_dir, cmd_ports, self.get_container_name(), self.get_container_network_name()))
+            self.result_postup.append(self.get_podman_cmd_with(
+                'podman run --cap-add NET_RAW -v {}:/root/bin -v {}:/root/app {} --name {} --network {} -d wg-ops-runenv'.format(
+                    path_bin_dir, path_app_dir, cmd_ports, self.get_container_name(), self.get_container_network_name())
             ))
-            self.result_postup.append('PostUp={}'.format(
-                self.get_podman_cmd_with('podman exec {} mkdir -p /root/ssl /root/runner /root/conf'.format(
-                    self.get_container_name()))
+            self.result_postup.append(self.get_podman_cmd_with(
+                'podman exec {} mkdir -p /root/ssl /root/runner /root/conf'.format(self.get_container_name())
             ))
 
             if not self.flag_container_must_host and not self.podman_user:
-                    self.result_postup.append("PostUp=CT_IP=$({}); iptables -A FORWARD -d $CT_IP -j ACCEPT; iptables -A INPUT -s $CT_IP -j ACCEPT".format(
+                    self.result_postup.append("CT_IP=$({}); iptables -A FORWARD -d $CT_IP -j ACCEPT; iptables -A INPUT -s $CT_IP -j ACCEPT".format(
                         self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
-                    self.result_postdown.append("PostDown=CT_IP=$({}); iptables -D FORWARD -d $CT_IP -j ACCEPT; iptables -D INPUT -s $CT_IP -j ACCEPT".format(
+                    self.result_postdown.append("CT_IP=$({}); iptables -D FORWARD -d $CT_IP -j ACCEPT; iptables -D INPUT -s $CT_IP -j ACCEPT".format(
                         self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name()))))
 
-            self.result_postdown.append('PostDown={}'.format(
-                self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name()))
-            ))
-
-            self.result_postdown.append('PostDown={}'.format(
-                self.get_podman_cmd_with('podman rm {}'.format(self.get_container_name()))
-            ))
+            self.result_postdown.append(self.get_podman_cmd_with('podman stop {}'.format(self.get_container_name())))
+            self.result_postdown.append(self.get_podman_cmd_with('podman rm {}'.format(self.get_container_name())))
 
             if not self.flag_container_must_host:
-                self.result_postdown.append('PostDown={}'.format(
-                    self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name()))
-                ))
+                self.result_postdown.append(self.get_podman_cmd_with('podman network rm {}'.format(self.get_container_network_name())))
 
             self.result_postup.extend(self.result_container_prebootstrap)
 
             if self.flag_container_must_host:
-                self.result_postup.append('PostUp={}'.format(
-                    self.get_podman_cmd_with('podman exec -t -e GATEWAY_IP=127.0.0.1 -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
-                        self.wg_port, self.get_container_name()))
+                self.result_postup.append(self.get_podman_cmd_with(
+                    'podman exec -t -e GATEWAY_IP=127.0.0.1 -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(self.wg_port, self.get_container_name())
                 ))
             elif self.podman_user:
-                self.result_postup.append('PostUp={}'.format(
-                    self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
-                        path_get_lan_ip, self.wg_port, self.get_container_name()))
+                self.result_postup.append(self.get_podman_cmd_with(
+                    'CT_GATEWAY=$(/usr/bin/python3 {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                        path_get_lan_ip, self.wg_port, self.get_container_name())
                 ))
             else:
-                self.result_postup.append('PostUp={}'.format(
-                    self.get_podman_cmd_with('CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
-                        path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name()))
+                self.result_postup.append(self.get_podman_cmd_with(
+                    'CT_GATEWAY=$(/usr/bin/python3 {} {}); podman exec -t -e GATEWAY_IP=$CT_GATEWAY -e WG_PORT={} {} /usr/bin/python3 /root/app/bootstrap.py'.format(
+                        path_get_gateway, self.get_container_network_name(), self.wg_port, self.get_container_name())
                 ))
 
             self.result_postup.extend(self.result_container_postbootstrap)
@@ -880,10 +870,10 @@ class Parser:
                         if addr_host == "gateway":
                             tunnel_addr = ""
                             if self.flag_container_must_host or self.podman_user:
-                                self.result_postup.append("PostUp=wg set {} peer {} endpoint 127.0.0.1:{}".format(
+                                self.result_postup.append("wg set {} peer {} endpoint 127.0.0.1:{}".format(
                                     self.wg_name, current_pubkey, addr_port))
                             else:
-                                self.result_postup.append("PostUp=CT_IP=$({}); wg set {} peer {} endpoint $CT_IP:{}".format(
+                                self.result_postup.append("CT_IP=$({}); wg set {} peer {} endpoint $CT_IP:{}".format(
                                     self.get_podman_cmd_with('/usr/bin/python3 {} {} {}'.format(path_get_ip, self.get_container_network_name(), self.get_container_name())),
                                     self.wg_name, current_pubkey, addr_port))
                     elif tunnel_addr:
@@ -902,21 +892,24 @@ class Parser:
                     errprint('[WARN] comment or unknown hint: {}'.format(line))
 
             if self.flag_is_route_forward and this_peer_idx == 0:
-                self.result_postup.insert(0, 'PostUp=wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
+                self.result_postup.insert(0, 'wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
 
             if current_lookup:
                 for ip_cidr in current_allowed:
-                    self.result_postup.append('PostUp=ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
-                    self.result_postdown.append('PostDown=ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
+                    self.result_postup.append('ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
+                    self.result_postdown.append('ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
 
     def get_result(self):
         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        gen_result_postup = ["PostUp={}".format(line) for line in self.result_postup]
+        gen_result_postdown = ["PostDown={}".format(line) for line in self.result_postdown]
+
         return '''# Generated by wg-ops at {}. DO NOT EDIT.
 {}
 {}
 {}
 {}
-'''.format(current_time, '\n'.join(self.result_interface), '\n'.join(self.result_postup), '\n'.join(self.result_postdown), '\n'.join(self.result_peers))
+'''.format(current_time, '\n'.join(self.result_interface), '\n'.join(gen_result_postup), '\n'.join(gen_result_postdown), '\n'.join(self.result_peers))
 
 
 if __name__ == "__main__":
