@@ -47,6 +47,9 @@ LOCAL_SPEEDER_HASH=$(sha256sum bin/speederv2_amd64 | awk '{print $1}')
 VERIFIED_GOST_HASH="5434f730594d29b933087dcaf1ae680bee7077abd021c004f28287deccfe49b5"
 LOCAL_GOST_HASH=$(sha256sum bin/gost | awk '{print $1}')
 
+VERIFIED_TROJANGO_HASH="cb7db31244ec4213c81cb4ef1080c92b44477a0b1dc101246304846e9d74b640"
+LOCAL_TROJANGO_HASH=$(sha256sum bin/trojan-go | awk '{print $1}')
+
 if [ "$LOCAL_TUNNEL_HASH" == "$VERIFIED_TUNNEL_HASH" ]
 then
     echo "[OK] udp2raw hash match: $LOCAL_TUNNEL_HASH"
@@ -66,6 +69,13 @@ then
     echo "[OK] gost hash match: $LOCAL_GOST_HASH"
 else
     echo "[WARN] gost hash mismatch: $LOCAL_GOST_HASH. Expected: $VERIFIED_GOST_HASH"
+fi
+
+if [ "$LOCAL_TROJANGO_HASH" == "$VERIFIED_TROJANGO_HASH" ]
+then
+    echo "[OK] trojan-go hash match: $LOCAL_TROJANGO_HASH"
+else
+    echo "[WARN] trojan-go hash mismatch: $LOCAL_TROJANGO_HASH. Expected: $VERIFIED_TROJANGO_HASH"
 fi
 
 podman build . -f DockerfileBase -t wg-ops-base:latest
