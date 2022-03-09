@@ -599,6 +599,9 @@ class Parser:
             elif line.startswith('#iptables-forward'):
                 self.result_postup.append('iptables -A FORWARD -i {} -j ACCEPT'.format(self.wg_name))
                 self.result_postdown.append('iptables -D FORWARD -i {} -j ACCEPT'.format(self.wg_name))
+            elif line.startswith('#iptables-gateway'):
+                self.result_postup.append('iptables -t nat -A POSTROUTING -o {} -j MASQUERADE'.format(self.wg_name))
+                self.result_postdown.append('iptables -t nat -D POSTROUTING -o {} -j MASQUERADE'.format(self.wg_name))
             elif line.startswith('#route-to'):
                 self.flag_is_route_forward = True
 
