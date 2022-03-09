@@ -42,7 +42,11 @@ Set `net.ipv4.ip_forward` to 1. Enable ip packet forward.
 
 **iptables-forward**
 
-Add iptables rules to accept forward from this wireguard interface. Example: `iptables -A FORWARD -i wg0 -J ACCEPT`
+Add iptables rules to accept forward from this wireguard interface. Example: `iptables -A FORWARD -i wg0 -j ACCEPT`
+
+**iptables-gateway**
+
+Add iptables rules to masquerade source ip as a gateway. Example: `iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE`
 
 **podman-user** *username*
 
