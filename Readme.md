@@ -52,6 +52,10 @@ Add iptables rules to masquerade source ip as a gateway. Example: `iptables -t n
 
 Run podman container as `username`. Default to `root`.
 
+**enable-dns-reload**
+
+Enable DNS reloader for peers with endpoint. For each peer, a transient timer and service will be created and try resolving endpoint domain name every 30 seconds. If the dns record of a domain changes, wg-ops will try to update wireguard interface endpoint settings live.
+
 ## Tunnel Tags
 
 **udp2raw-server** *name* *port* *password*
