@@ -5,6 +5,7 @@ local/
 __pycache__/
 
 *.json
+*.dat
 *.conf
 start.sh
 stop.sh
