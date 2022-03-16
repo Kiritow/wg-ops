@@ -100,6 +100,7 @@ class Parser:
         self.path_get_gateway = os.path.join(wgop_basepath, 'tools/get-gateway.py')
         self.path_get_ip = os.path.join(wgop_basepath, 'tools/get-ip.py')
         self.path_get_lan_ip = os.path.join(wgop_basepath, 'tools/get-lan-ip.py')
+        self.path_reload_dns = os.path.join(wgop_basepath, 'tools/reload-dns.py')
         self.path_bin_dir = os.path.join(wgop_basepath, 'bin')
         self.path_app_dir = os.path.join(wgop_basepath, 'app')
 
@@ -127,6 +128,8 @@ class Parser:
         self.flag_is_route_lookup = False
         self.flag_container_must_host = False
         self.flag_require_registry = False
+        self.flag_enable_dns_reload = False
+        self.flag_require_systemd_clean = False
 
         # vars
         self.wg_name = '%i'
@@ -607,6 +610,8 @@ class Parser:
             elif line.startswith('#iptables-gateway'):
                 self.result_postup.append('iptables -t nat -A POSTROUTING -o {} -j MASQUERADE'.format(self.wg_name))
                 self.result_postdown.append('iptables -t nat -D POSTROUTING -o {} -j MASQUERADE'.format(self.wg_name))
+            elif line.startswith('#enable-dns-reload'):
+                self.flag_enable_dns_reload = True
             elif line.startswith('#route-to'):
                 self.flag_is_route_forward = True
 
@@ -846,6 +851,7 @@ class Parser:
         for this_peer_idx, this_peer_lines in enumerate(self.input_peer):
             current_pubkey = ''
             current_allowed = ''
+            current_endpoint = ''
             if self.flag_is_route_lookup:
                 current_lookup = self.lookup_table
             else:
@@ -856,7 +862,9 @@ class Parser:
                 if line.startswith('PublicKey'):
                     current_pubkey =  '='.join(line.split('=')[1:]).strip()
                 if line.startswith('AllowedIPs'):
-                    current_allowed = line.split('=')[1].strip().split(',') 
+                    current_allowed = line.split('=')[1].strip().split(',')
+                if line.startswith('Endpoint'):
+                    current_endpoint = line.split('=')[1].strip().split(',')
 
             self.result_peers.append('[Peer]')
 
@@ -866,6 +874,8 @@ class Parser:
                     continue
 
                 if line.startswith('#use-tunnel'):
+                    current_endpoint = ''
+
                     parts = line.split(' ')[1:]
                     tunnel_name = parts[0]
 
@@ -899,6 +909,12 @@ class Parser:
                 else:
                     errprint('[WARN] comment or unknown hint: {}'.format(line))
 
+            if self.flag_enable_dns_reload and current_endpoint:
+                task_uuid = str(uuid.uuid4())
+                self.result_postup.append('systemd-run -u wg-ops-task-{}-dnsreload-{} --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
+                    self.wg_name, task_uuid, self.path_reload_dns, self.wg_name, current_pubkey, current_endpoint))
+                self.flag_require_systemd_clean = True
+
             if self.flag_is_route_forward and this_peer_idx == 0:
                 self.result_postup.insert(0, 'wg set {} peer {} allowed-ips 0.0.0.0/0'.format(self.wg_name, current_pubkey))
 
@@ -906,6 +922,9 @@ class Parser:
                 for ip_cidr in current_allowed:
                     self.result_postup.append('ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
                     self.result_postdown.append('ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
+
+        if self.flag_require_systemd_clean:
+            self.result_postdown.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
 
     def get_result(self):
         current_time = time.strftime("%Y-%m-%d %H:%M:%S")
