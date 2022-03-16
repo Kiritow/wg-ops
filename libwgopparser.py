@@ -103,6 +103,11 @@ class Parser:
         self.path_bin_dir = os.path.join(wgop_basepath, 'bin')
         self.path_app_dir = os.path.join(wgop_basepath, 'app')
 
+        # opts
+        self.opt_source_path = ''
+        self.opt_allow_modify = False
+        self.opt_use_tmux = False
+
         # input parts
         self.input_interface = []
         self.input_peer = []
@@ -122,10 +127,6 @@ class Parser:
         self.flag_is_route_lookup = False
         self.flag_container_must_host = False
         self.flag_require_registry = False
-        self.flag_allow_modify = False
-
-        # opts
-        self.opt_source_path = ''
 
         # vars
         self.wg_name = '%i'
@@ -493,7 +494,7 @@ class Parser:
     def compile_interface(self):
         self.result_interface.append('[Interface]')
 
-        filted_input_interface = []
+        filtered_input_interface = []
         unresolved_peers = []
 
         # pre-compile registry-related
@@ -546,7 +547,7 @@ class Parser:
                 })
                 self.flag_require_registry = True
             else:
-                filted_input_interface.append(line)
+                filtered_input_interface.append(line)
 
         # registry init
         if self.flag_require_registry:
@@ -556,7 +557,7 @@ class Parser:
                 self.local_private_key, self.local_public_key = generate_rsa_keypair()
                 private_pem, public_pem = get_pem_from_rsa_keypair(self.local_private_key, self.local_public_key)
 
-                if self.flag_allow_modify:
+                if self.opt_allow_modify:
                     errprint('[MODIFY] appending to {}...'.format(self.opt_source_path))
                     with open(self.opt_source_path, 'a') as f:
                         f.write('\n#store:key {}\n'.format(base64.b64encode(private_pem.encode()).decode()))
@@ -583,7 +584,14 @@ class Parser:
                 }.get(peer_config["type"], lambda x, y: False)(peer_client_config, peer_config)
 
         # compile interface
-        for line in filted_input_interface:
+        for line in filtered_input_interface:
+            if line.startswith('PostUp'):
+                self.result_postup.append(','.join(line.split('=')[1:]).strip())
+                continue
+            if line.startswith('PostDown'):
+                self.result_postdown.append(','.join(line.split('=')[1:]).strip())
+                continue
+
             if not line.startswith('#'):
                 self.result_interface.append(line)
                 continue
@@ -721,7 +729,7 @@ class Parser:
             else:
                 errprint('[WARN] comment or unknown hint: {}'.format(line))
 
-        if not self.wg_mtu:
+        if not self.wg_mtu and self.container_bootstrap:
             errprint('[WARN] MTU not detected, using suggested mtu value (1280).')
             self.result_interface.append('MTU=1280')
 

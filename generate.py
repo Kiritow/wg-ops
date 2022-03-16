@@ -28,7 +28,7 @@ HELP
     wgop_basepath = os.path.dirname(os.path.realpath(sys.argv[0]))
     parser = Parser(wgop_basepath)
     if '-i' in opts:
-        parser.flag_allow_modify = True
+        parser.opt_allow_modify = True
         parser.opt_source_path = filepath
 
     parser.parse(content)
