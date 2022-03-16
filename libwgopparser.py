@@ -864,7 +864,7 @@ class Parser:
                 if line.startswith('AllowedIPs'):
                     current_allowed = line.split('=')[1].strip().split(',')
                 if line.startswith('Endpoint'):
-                    current_endpoint = line.split('=')[1].strip().split(',')
+                    current_endpoint = line.split('=')[1].strip()
 
             self.result_peers.append('[Peer]')
 
@@ -911,7 +911,7 @@ class Parser:
 
             if self.flag_enable_dns_reload and current_endpoint:
                 task_uuid = str(uuid.uuid4())
-                self.result_postup.append('systemd-run -u wg-ops-task-{}-dnsreload-{} --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
+                self.result_postup.append('systemd-run -u wg-ops-task-{}-dnsreload-{} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
                     self.wg_name, task_uuid, self.path_reload_dns, self.wg_name, current_pubkey, current_endpoint))
                 self.flag_require_systemd_clean = True
 
@@ -924,6 +924,7 @@ class Parser:
                     self.result_postdown.append('ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
 
         if self.flag_require_systemd_clean:
+            self.result_postup.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
             self.result_postdown.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
 
     def get_result(self):

@@ -15,16 +15,20 @@ if __name__ == "__main__":
     target_addr = sys.argv[3]
 
     # resolve dns
-    target_parts = target_addr.split(':')[0]
+    target_parts = target_addr.split(':')
     target_host = target_parts[0]
     target_port = target_parts[1]
     target_ip = subprocess.check_output(["dig", "+short", target_host]).decode().strip()
+    if not target_ip:
+        sys.stderr.write('unable to resolve domain: {}\n'.format(target_host))
+        exit(1)
+
     target_endpoint = "{}:{}".format(target_ip, target_port)
 
     # dump interface
     wg_raw_info = subprocess.check_output(["wg", "show", interface_name, "dump"]).decode().strip().split('\n')
     if not wg_raw_info:
-        print('wireguard interface {} not found'.format(interface_name))
+        sys.stderr.write('wireguard interface {} not found.\n'.format(interface_name))
         exit(1)
 
     wg_raw_info = wg_raw_info[1:]
@@ -32,7 +36,7 @@ if __name__ == "__main__":
     
     wg_info = [x for x in wg_info if x[0] == peer_pubkey]
     if not wg_info:
-        print('wireguard interface {} peer {} not found.'.format(interface_name, peer_pubkey))
+        sys.stderr.write('wireguard interface {} peer {} not found.\n'.format(interface_name, peer_pubkey))
         exit(1)
 
     peer_info = wg_info[0]
@@ -44,4 +48,6 @@ if __name__ == "__main__":
         try:
             subprocess.check_call(["wg", "set", interface_name, "peer", peer_pubkey, "endpoint", target_endpoint])
         except Exception:
-            print(traceback.format_exc())
+            sys.stderr.write(traceback.format_exc())
+    else:
+        print('Endpoint matches: {}, skipping update.'.format(peer_endpoint))
