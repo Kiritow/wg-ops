@@ -1004,7 +1004,7 @@ class Parser:
 
             if self.flag_enable_dns_reload and current_endpoint:
                 task_uuid = str(uuid.uuid4())
-                self.result_postup.append('systemd-run -u wg-ops-task-{}-dnsreload-{} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
+                self.result_postup.append('systemd-run --unit wg-ops-task-{}-dnsreload-{} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
                     self.wg_name, task_uuid, self.path_reload_dns, self.wg_name, current_pubkey, current_endpoint))
                 self.flag_require_systemd_clean = True
 
