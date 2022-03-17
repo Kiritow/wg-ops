@@ -524,7 +524,7 @@ class Parser:
                 }
             }
 
-            troj_config = base64.b64encode(json.dumps(troj_config, ensure_ascii=False)).decode()
+            troj_config = base64.b64encode(json.dumps(troj_config, ensure_ascii=False).encode()).decode()
             self.result_postup.append('echo {} | base64 -d > /tmp/temp-trojan-{}-{}.conf'.format(troj_config, self.wg_name, tunnel_name))
             self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -config /tmp/temp-trojan-{}-{}.conf' '''.format(
                 self.wg_name, self.path_bin_trojan, self.wg_name, tunnel_name,
