@@ -5,7 +5,7 @@ from libwgopparser import Parser, errprint
 
 
 if __name__ == "__main__":
-    opts, args = getopt.getopt(sys.argv[1:], 'hiko:')
+    opts, args = getopt.getopt(sys.argv[1:], 'hiko:', ["tmux"])
     opts = {p[0]: p[1] for p in opts}
 
     if '-h' in opts:
@@ -14,6 +14,7 @@ OPTIONS
     -h Display this help and quit.
     -k Output generated config to standard output
     -o <filename> Output generated config to file. Default is {source_filename}.gen
+    --tmux Use tmux instead of containers
 HELP
     For latest help please view https://github.com/Kiritow/wg-ops
 ''')
@@ -30,6 +31,8 @@ HELP
     if '-i' in opts:
         parser.opt_allow_modify = True
         parser.opt_source_path = filepath
+    if '--tmux' in opts:
+        parser.opt_use_tmux = True
 
     parser.parse(content)
     parser.compile_interface()

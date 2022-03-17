@@ -103,6 +103,10 @@ class Parser:
         self.path_reload_dns = os.path.join(wgop_basepath, 'tools/reload-dns.py')
         self.path_bin_dir = os.path.join(wgop_basepath, 'bin')
         self.path_app_dir = os.path.join(wgop_basepath, 'app')
+        self.path_bin_mux = os.path.join(wgop_basepath, 'bin/mux')
+        self.path_bin_udp2raw = os.path.join(wgop_basepath, 'bin/udp2raw_amd64')
+        self.path_bin_gost = os.path.join(wgop_basepath, 'bin/gost')
+        self.path_bin_trojan = os.path.join(wgop_basepath, 'bin/trojan-go')
 
         # opts
         self.opt_source_path = ''
@@ -130,6 +134,7 @@ class Parser:
         self.flag_require_registry = False
         self.flag_enable_dns_reload = False
         self.flag_require_systemd_clean = False
+        self.flag_has_open_tmux = False
 
         # vars
         self.wg_name = '%i'
@@ -251,7 +256,7 @@ class Parser:
             return False
 
     def registry_ensure(self, peers=None):
-        private_pem, public_pem = get_pem_from_rsa_keypair(None, self.local_public_key)
+        _, public_pem = get_pem_from_rsa_keypair(None, self.local_public_key)
         can_ensure = self.registry_upload({
             "name": self.registry_client_name,
             "pubkey": public_pem,
@@ -283,7 +288,28 @@ class Parser:
         this_peer.append("AllowedIPs = {}".format(allowed_ip))
         self.input_peer.append(this_peer)
 
+    def _ensure_open_tmux(self):
+        if not self.flag_has_open_tmux:
+            self.flag_has_open_tmux = True
+            self.result_postup.append('''tmux new-session -s tunnel-{} -d 'watch -n 1 --color WG_COLOR_MODE=always wg show {}' '''.format(self.wg_name, self.wg_name))
+    
+    def _add_tunnel_local_endpoint(self, tunnel_name, listen_port):
+        if self.opt_use_tmux:
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        elif self.podman_user:
+            self.add_expose(listen_port)
+            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
+        else:
+            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+
     def add_muxer(self, listen_port, forward_start, forward_size):
+        if self.opt_use_tmux:
+            self._ensure_open_tmux()
+            self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -l {} -t {} -s {}' '''.format(
+                self.wg_name, self.path_bin_mux, listen_port, forward_start, forward_size,
+            ))
+            return
+
         self.container_bootstrap.append({
             "type": "mux",
             "listen": int(listen_port),
@@ -292,14 +318,22 @@ class Parser:
         })
 
     def add_gost_server(self, tunnel_name, listen_port):
-        self.container_bootstrap.append({
-            "type": "gost-server",
-            "listen": int(listen_port),
-        })
         self.tunnel_server_reports[tunnel_name] = {
             "type": "gost",
             "listen": int(listen_port),
         }
+
+        if self.opt_use_tmux:
+            self._ensure_open_tmux()
+            self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -L=relay+tls://:{}/127.0.0.1:{}' '''.format(
+                self.wg_name, self.path_bin_gost, listen_port, self.wg_port,
+            ))
+            return
+
+        self.container_bootstrap.append({
+            "type": "gost-server",
+            "listen": int(listen_port),
+        })
 
     def add_gost_client_with(self, remote_config, remote_peer_config):
         self.local_autogen_nextport += 1
@@ -308,24 +342,24 @@ class Parser:
         self.append_input_peer_clientside(remote_config["wgkey"], remote_peer_config["allowed"], tunnel_name)
 
     def add_gost_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_remote):
-        if self.podman_user:
-            self.add_expose(listen_port)
-            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
-        else:
-            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
-        self.add_muxer(listen_port, listen_port+1, mux_size)
+        self._add_tunnel_local_endpoint(tunnel_name, listen_port)
+
+        self.add_muxer(listen_port, listen_port + 1, mux_size)
         for mux_idx in range(mux_size):
             self._do_add_gost_client(listen_port + 1 + mux_idx, tunnel_remote)
 
     def add_gost_client(self, tunnel_name, listen_port, tunnel_remote):
-        if self.podman_user:
-            self.add_expose(listen_port)
-            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
-        else:
-            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self._add_tunnel_local_endpoint(tunnel_name, listen_port)
         self._do_add_gost_client(listen_port, tunnel_remote)
 
     def _do_add_gost_client(self, listen_port, tunnel_remote):
+        if self.opt_use_tmux:
+            self._ensure_open_tmux()
+            self.result_postup.append('''tmux new -t tunnel-{} -d '{} -L udp://:{} -F relay+tls://{}' '''.format(
+                self.wg_name, self.path_bin_gost, listen_port, tunnel_remote,
+            ))
+            return
+
         self.container_bootstrap.append({
             "type": "gost-client",
             "listen": int(listen_port),
@@ -333,22 +367,33 @@ class Parser:
         })
 
     def add_udp2raw_server(self, tunnel_name, listen_port, tunnel_password):
-        conf_uuid = str(uuid.uuid4())
-
-        self.container_bootstrap.append({
-            "type": "udp2raw-server",
-            "listen": int(listen_port),
-            "password": tunnel_password,
-            "id": conf_uuid,
-        })
         self.tunnel_server_reports[tunnel_name] = {
             "type": "udp2raw",
             "listen": int(listen_port),
             "password": tunnel_password,
         }
 
-        ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
+        if self.opt_use_tmux:
+            self._ensure_open_tmux()
+            self.result_postup.append('''echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
+                listen_port, self.wg_port, tunnel_password, self.wg_name, tunnel_name,
+            ))
+            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2 '''.format(
+                self.wg_name, tunnel_name, self.path_bin_udp2raw, self.wg_name, tunnel_name,
+            ))
+            self.result_postup.append('''rm /tmp/temp-udp2raw-{}-{}.conf'''.format(self.wg_name, tunnel_name))
+            self.result_postdown.append('''sleep 1; tmux send-keys -t tunnel-{}:win-{} C-c'''.format(self.wg_name, tunnel_name))
+            return
 
+        conf_uuid = str(uuid.uuid4())
+        self.container_bootstrap.append({
+            "type": "udp2raw-server",
+            "listen": int(listen_port),
+            "password": tunnel_password,
+            "id": conf_uuid,
+        })
+
+        ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
         self.result_container_postbootstrap.append('IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
@@ -365,18 +410,31 @@ class Parser:
     def add_udp2raw_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_password, remote_addr):
         self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
         self.flag_container_must_host = True
+
         self.add_muxer(listen_port, listen_port+1, mux_size)
         for mux_idx in range(mux_size):
-            self._do_add_udp2raw_client(listen_port + 1 + mux_idx, tunnel_password, remote_addr)
+            self._do_add_udp2raw_client(tunnel_name, listen_port + 1 + mux_idx, tunnel_password, remote_addr)
 
     def add_udp2raw_client(self, tunnel_name, listen_port, tunnel_password, remote_addr):
         self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
         self.flag_container_must_host = True
-        self._do_add_udp2raw_client(listen_port, tunnel_password, remote_addr)
 
-    def _do_add_udp2raw_client(self, listen_port, tunnel_password, remote_addr):
+        self._do_add_udp2raw_client(tunnel_name, listen_port, tunnel_password, remote_addr)
+
+    def _do_add_udp2raw_client(self, tunnel_name, listen_port, tunnel_password, remote_addr):
+        if self.opt_use_tmux:
+            self._ensure_open_tmux()
+            self.result_postup.append('''echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
+                listen_port, remote_addr, tunnel_password, self.wg_name, tunnel_name,
+            ))
+            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2 '''.format(
+                self.wg_name, tunnel_name, self.path_bin_udp2raw, self.wg_name, tunnel_name,
+            ))
+            self.result_postup.append('''rm /tmp/temp-udp2raw-{}-{}.conf'''.format(self.wg_name, tunnel_name))
+            self.result_postdown.append('''sleep 1; tmux send-keys -t tunnel-{}:win-{} C-c'''.format(self.wg_name, tunnel_name))
+            return
+
         conf_uuid = str(uuid.uuid4())
-
         self.container_bootstrap.append({
             "type": "udp2raw-client",
             "listen": int(listen_port),
@@ -386,7 +444,6 @@ class Parser:
         })
 
         ipt_filename_inside = "/root/conf/{}-ipt.conf".format(conf_uuid)
-
         self.result_container_postbootstrap.append('IPT_COMMANDS=$({}); echo $IPT_COMMANDS; $IPT_COMMANDS'.format(
             self.get_podman_cmd_with("podman exec {} /root/bin/udp2raw_amd64 --conf-file {} | grep ^iptables".format(self.get_container_name(), ipt_filename_inside))
         ))
@@ -395,6 +452,18 @@ class Parser:
         ))
 
     def add_trojan_server(self, tunnel_name, listen_port, tunnel_password, ssl_cert_path, ssl_key_path):
+        self.tunnel_server_reports[tunnel_name] = {
+            "type": "trojan",
+            "listen": int(listen_port),
+            "password": tunnel_password,
+            "target": int(self.wg_port),
+            "sni": get_subject_name_from_cert(ssl_cert_path),
+        }
+
+        if self.opt_use_tmux:
+            errprint('[ERROR] Unable to create trojan-go server in tmux mode. Please use container mode.')
+            exit(1)
+
         cert_uuid = str(uuid.uuid4())
         cert_filepath = "/root/ssl/{}.cert".format(cert_uuid)
         key_filepath = "/root/ssl/{}.key".format(cert_uuid)
@@ -412,13 +481,7 @@ class Parser:
             "password": tunnel_password,
             "cert": cert_uuid,
         })
-        self.tunnel_server_reports[tunnel_name] = {
-            "type": "trojan",
-            "listen": int(listen_port),
-            "password": tunnel_password,
-            "target": int(self.wg_port),
-            "sni": get_subject_name_from_cert(ssl_cert_path),
-        }
+
 
     def add_trojan_client_with(self, remote_config, remote_peer_config):
         self.local_autogen_nextport += 1
@@ -428,24 +491,47 @@ class Parser:
         self.append_input_peer_clientside(remote_config["wgkey"], remote_peer_config["allowed"], tunnel_name)
 
     def add_trojan_client_mux(self, tunnel_name, mux_size, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
-        if self.podman_user:
-            self.add_expose(listen_port)
-            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
-        else:
-            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
+        self._add_tunnel_local_endpoint(tunnel_name, listen_port)
         self.add_muxer(listen_port, listen_port+1, mux_size)
         for mux_idx in range(mux_size):
-            self._do_add_trojan_client(listen_port + 1 + mux_idx, tunnel_password, remote_addr, target_port, ssl_sni)
+            self._do_add_trojan_client(tunnel_name, listen_port + 1 + mux_idx, tunnel_password, remote_addr, target_port, ssl_sni)
 
     def add_trojan_client(self, tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni=None):
-        if self.podman_user:
-            self.add_expose(listen_port)
-            self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
-        else:
-            self.tunnel_local_endpoint[tunnel_name] = "gateway:{}".format(listen_port)
-        self._do_add_trojan_client(listen_port, tunnel_password, remote_addr, target_port, ssl_sni)
+        self._add_tunnel_local_endpoint(tunnel_name, listen_port)
+        self._do_add_trojan_client(tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni)
 
-    def _do_add_trojan_client(self, listen_port, tunnel_password, remote_addr, target_port, ssl_sni):
+    def _do_add_trojan_client(self, tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni):
+        if self.opt_use_tmux:
+            if ':' in remote_addr:
+                remote_parts = remote_addr.split(':')
+                remote_host = remote_parts[0]
+                remote_port = int(remote_parts[1])
+            else:
+                remote_host = remote_addr
+                remote_port = 443
+
+            troj_config = {
+                "run_type": "forward",
+                "local_addr": "0.0.0.0",
+                "local_port": int(listen_port),
+                "remote_addr": remote_host,
+                "remote_port": remote_port,
+                "target_addr": "127.0.0.1",
+                "target_port": target_port,
+                "password": [tunnel_password],
+                "ssl": {
+                    "sni": ssl_sni if ssl_sni else remote_host,
+                }
+            }
+
+            troj_config = base64.b64encode(json.dumps(troj_config, ensure_ascii=False)).decode()
+            self.result_postup.append('echo {} | base64 -d > /tmp/temp-trojan-{}-{}.conf'.format(troj_config, self.wg_name, tunnel_name))
+            self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -config /tmp/temp-trojan-{}-{}.conf' '''.format(
+                self.wg_name, self.path_bin_trojan, self.wg_name, tunnel_name,
+            ))
+            self.result_postup.append('''rm /tmp/temp-trojan-{}-{}.conf'''.format(self.wg_name, tunnel_name))
+            return
+
         self.container_bootstrap.append({
             "type": "trojan-client",
             "listen": int(listen_port),
@@ -737,6 +823,13 @@ class Parser:
         if not self.wg_mtu and self.container_bootstrap:
             errprint('[WARN] MTU not detected, using suggested mtu value (1280).')
             self.result_interface.append('MTU=1280')
+
+        if self.opt_use_tmux:
+            self.result_postdown.append('''sleep 1; tmux kill-session -t tunnel-{}'''.format(self.wg_name))
+
+            self.container_bootstrap = []
+            self.result_container_prebootstrap = []
+            self.result_container_postbootstrap = []
 
         if self.container_bootstrap:
             config_str = json.dumps(self.container_bootstrap, ensure_ascii=False)
