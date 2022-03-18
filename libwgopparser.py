@@ -112,6 +112,7 @@ class Parser:
         self.opt_source_path = ''
         self.opt_allow_modify = False
         self.opt_use_tmux = False
+        self.opt_use_systemd = False
 
         # input parts
         self.input_interface = []
@@ -134,6 +135,7 @@ class Parser:
         self.flag_require_registry = False
         self.flag_enable_dns_reload = False
         self.flag_require_systemd_clean = False
+        self.flag_require_tmpfile_clean = False
         self.flag_has_open_tmux = False
 
         # vars
@@ -154,6 +156,7 @@ class Parser:
         self.container_expose_port = []
         self.container_bootstrap = []
         self.podman_user = ''
+        self.systemd_user = ''
 
     def get_container_network_name(self):
         if self.flag_container_must_host:
@@ -169,6 +172,36 @@ class Parser:
             return "su - {} -c '{}'".format(self.podman_user, command)
         else:
             return command
+
+    def get_systemd_run_cmd_with(self, command):
+        if self.systemd_user:
+            return command.replace('systemd-run', 'systemd-run --property User={}'.format(self.systemd_user), 1)
+        else:
+            return command
+
+    def new_tmp_filepath(self, suffix=None):
+        self.flag_require_tmpfile_clean = True
+        return "/tmp/wg-ops-tmpfile-{}-{}{}".format(self.wg_name, str(uuid.uuid4()), suffix if suffix else "")
+
+    def add_write_tmpfile_bytes(self, data_bytes, suffix=None):
+        raw_code_str = base64.b64encode(data_bytes).decode()
+        raw_parts = []
+
+        while len(raw_code_str) > 1024:
+            raw_parts.append(raw_code_str[:1024])
+            raw_code_str = raw_code_str[1024:]
+
+        if raw_code_str:
+            raw_parts.append(raw_code_str)
+
+        temp_data_path = self.new_tmp_filepath('.data')
+        temp_output_path = self.new_tmp_filepath(suffix)
+
+        for this_line in raw_parts:
+            self.result_postup.append('echo {} >> {}'.format(this_line, temp_data_path))
+        self.result_postup.append('base64 -d {} > {}'.format(temp_data_path, temp_output_path))
+        
+        return temp_output_path
 
     def registry_resolve(self, client_name):
         if not self.registry_domain:
@@ -292,9 +325,9 @@ class Parser:
         if not self.flag_has_open_tmux:
             self.flag_has_open_tmux = True
             self.result_postup.append('''tmux new-session -s tunnel-{} -d 'watch -n 1 --color WG_COLOR_MODE=always wg show {}' '''.format(self.wg_name, self.wg_name))
-    
+
     def _add_tunnel_local_endpoint(self, tunnel_name, listen_port):
-        if self.opt_use_tmux:
+        if self.opt_use_tmux or self.opt_use_systemd:
             self.tunnel_local_endpoint[tunnel_name] = "127.0.0.1:{}".format(listen_port)
         elif self.podman_user:
             self.add_expose(listen_port)
@@ -307,6 +340,12 @@ class Parser:
             self._ensure_open_tmux()
             self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -l {} -t {} -s {}' '''.format(
                 self.wg_name, self.path_bin_mux, listen_port, forward_start, forward_size,
+            ))
+            return
+
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-muxer-{} --collect --property Restart=always {} -l {} -t {} -s {}'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_mux, listen_port, forward_start, forward_size,
             ))
             return
 
@@ -327,6 +366,12 @@ class Parser:
             self._ensure_open_tmux()
             self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -L=relay+tls://:{}/127.0.0.1:{}' '''.format(
                 self.wg_name, self.path_bin_gost, listen_port, self.wg_port,
+            ))
+            return
+        
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-gost-server-{} --collect --property Restart=always {} -L=relay+tls://:{}/127.0.0.1:{}'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_gost, listen_port, self.wg_port,
             ))
             return
 
@@ -359,6 +404,12 @@ class Parser:
                 self.wg_name, self.path_bin_gost, listen_port, tunnel_remote,
             ))
             return
+        
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-gost-client-{} --collect --property Restart=always {} -L udp://:{} -F relay+tls://{}'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_gost, listen_port, tunnel_remote,
+            ))
+            return
 
         self.container_bootstrap.append({
             "type": "gost-client",
@@ -373,16 +424,24 @@ class Parser:
             "password": tunnel_password,
         }
 
+        if self.opt_use_tmux or self.opt_use_systemd:
+            temp_config_path = self.new_tmp_filepath('.conf')
+            self.result_postup.append('''echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n-a' > {}'''.format(
+                listen_port, self.wg_port, tunnel_password, temp_config_path
+            ))
+
         if self.opt_use_tmux:
             self._ensure_open_tmux()
-            self.result_postup.append('''echo -e '-s\\n-l 0.0.0.0:{}\\n-r 127.0.0.1:{}\\n-k {}\\n--raw-mode faketcp\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
-                listen_port, self.wg_port, tunnel_password, self.wg_name, tunnel_name,
+            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file {}'; sleep 2 '''.format(
+                self.wg_name, tunnel_name, self.path_bin_udp2raw, temp_config_path,
             ))
-            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2 '''.format(
-                self.wg_name, tunnel_name, self.path_bin_udp2raw, self.wg_name, tunnel_name,
-            ))
-            self.result_postup.append('''rm /tmp/temp-udp2raw-{}-{}.conf'''.format(self.wg_name, tunnel_name))
             self.result_postdown.append('''sleep 1; tmux send-keys -t tunnel-{}:win-{} C-c'''.format(self.wg_name, tunnel_name))
+            return
+
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-server-{} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_udp2raw, temp_config_path,
+            ))
             return
 
         conf_uuid = str(uuid.uuid4())
@@ -422,16 +481,24 @@ class Parser:
         self._do_add_udp2raw_client(tunnel_name, listen_port, tunnel_password, remote_addr)
 
     def _do_add_udp2raw_client(self, tunnel_name, listen_port, tunnel_password, remote_addr):
+        if self.opt_use_tmux or self.opt_use_systemd:
+            temp_config_path = self.new_tmp_filepath('.conf')
+            self.result_postup.append('''echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n-a' > {}'''.format(
+                listen_port, remote_addr, tunnel_password, temp_config_path,
+            ))
+
         if self.opt_use_tmux:
-            self._ensure_open_tmux()
-            self.result_postup.append('''echo -e '-c\\n-l 127.0.0.1:{}\\n-r {}\\n-k {}\\n--raw-mode faketcp\\n-a' > /tmp/temp-udp2raw-{}-{}.conf'''.format(
-                listen_port, remote_addr, tunnel_password, self.wg_name, tunnel_name,
+            self._ensure_open_tmux()            
+            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file {}'; sleep 2 '''.format(
+                self.wg_name, tunnel_name, self.path_bin_udp2raw, temp_config_path,
             ))
-            self.result_postup.append('''tmux new-window -t tunnel-{} -n win-{} -d '{} --conf-file /tmp/temp-udp2raw-{}-{}.conf'; sleep 2 '''.format(
-                self.wg_name, tunnel_name, self.path_bin_udp2raw, self.wg_name, tunnel_name,
-            ))
-            self.result_postup.append('''rm /tmp/temp-udp2raw-{}-{}.conf'''.format(self.wg_name, tunnel_name))
             self.result_postdown.append('''sleep 1; tmux send-keys -t tunnel-{}:win-{} C-c'''.format(self.wg_name, tunnel_name))
+            return
+
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-client-{} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_udp2raw, temp_config_path,
+            ))
             return
 
         conf_uuid = str(uuid.uuid4())
@@ -460,8 +527,8 @@ class Parser:
             "sni": get_subject_name_from_cert(ssl_cert_path),
         }
 
-        if self.opt_use_tmux:
-            errprint('[ERROR] Unable to create trojan-go server in tmux mode. Please use container mode.')
+        if self.opt_use_tmux or self.opt_use_systemd:
+            errprint('[ERROR] Unable to create trojan-go server in tmux or systemd mode. Please use container mode.')
             exit(1)
 
         cert_uuid = str(uuid.uuid4())
@@ -501,7 +568,7 @@ class Parser:
         self._do_add_trojan_client(tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni)
 
     def _do_add_trojan_client(self, tunnel_name, listen_port, tunnel_password, remote_addr, target_port, ssl_sni):
-        if self.opt_use_tmux:
+        if self.opt_use_tmux or self.opt_use_systemd:
             if ':' in remote_addr:
                 remote_parts = remote_addr.split(':')
                 remote_host = remote_parts[0]
@@ -524,12 +591,18 @@ class Parser:
                 }
             }
 
-            troj_config = base64.b64encode(json.dumps(troj_config, ensure_ascii=False).encode()).decode()
-            self.result_postup.append('echo {} | base64 -d > /tmp/temp-trojan-{}-{}.conf'.format(troj_config, self.wg_name, tunnel_name))
-            self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -config /tmp/temp-trojan-{}-{}.conf' '''.format(
-                self.wg_name, self.path_bin_trojan, self.wg_name, tunnel_name,
+            temp_config_path = self.add_write_tmpfile_bytes(json.dumps(troj_config, ensure_ascii=False).encode(), '.json')
+
+        if self.opt_use_tmux:
+            self.result_postup.append('''tmux new-window -t tunnel-{} -d '{} -config {}' '''.format(
+                self.wg_name, self.path_bin_trojan, temp_config_path,
             ))
-            self.result_postup.append('''rm /tmp/temp-trojan-{}-{}.conf'''.format(self.wg_name, tunnel_name))
+            return
+
+        if self.opt_use_systemd:
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-client-{} --collect {} -config {}'.format(
+                self.wg_name, str(uuid.uuid4()), self.path_bin_trojan, temp_config_path,
+            ))
             return
 
         self.container_bootstrap.append({
@@ -644,7 +717,7 @@ class Parser:
                 errprint('registry required but no existing private key found, generating new...')
 
                 self.local_private_key, self.local_public_key = generate_rsa_keypair()
-                private_pem, public_pem = get_pem_from_rsa_keypair(self.local_private_key, self.local_public_key)
+                private_pem, _ = get_pem_from_rsa_keypair(self.local_private_key, self.local_public_key)
 
                 if self.opt_allow_modify:
                     errprint('[MODIFY] appending to {}...'.format(self.opt_source_path))
@@ -722,6 +795,14 @@ class Parser:
                     errprint('[WARN] ignoring root as podman user.')
                 else:
                     self.podman_user = user_name
+            elif line.startswith('#systemd-user'):
+                parts = line.split(' ')[1:]
+                user_name = parts[0]
+
+                if user_name == "root":
+                    errprint('[WARN] ignoring root as systemd-run user.')
+                else:
+                    self.systemd_user = user_name
             elif line.startswith('#udp2raw-server'):
                 parts = line.split(' ')[1:]
                 tunnel_name = parts[0]
@@ -827,33 +908,16 @@ class Parser:
         if self.opt_use_tmux:
             self.result_postdown.append('''sleep 1; tmux kill-session -t tunnel-{}'''.format(self.wg_name))
 
-            self.container_bootstrap = []
-            self.result_container_prebootstrap = []
-            self.result_container_postbootstrap = []
+        if self.opt_use_tmux or self.opt_use_systemd:
+            self.container_bootstrap.clear()
+            self.result_container_prebootstrap.clear()
+            self.result_container_postbootstrap.clear()
 
         if self.container_bootstrap:
-            config_str = json.dumps(self.container_bootstrap, ensure_ascii=False)
-            config_gen = base64.b64encode(config_str.encode()).decode()
-
-            config_parts = []
-            while len(config_gen) > 1024:
-                config_parts.append(config_gen[:1024])
-                config_gen = config_gen[1024:]
-            config_parts.append(config_gen)
-
-            tmp_base64_filepath = "/tmp/wg-op-container-bootstrap-{}.data".format(self.wg_name)
-            tmp_filepath = "/tmp/wg-op-container-bootstrap-{}.json".format(self.wg_name)
-
-            self.result_postup.append('rm -f {}'.format(tmp_base64_filepath))
-            for this_config_line in config_parts:
-                self.result_postup.append('echo {} >> {}'.format(this_config_line, tmp_base64_filepath))
-            self.result_postup.append('base64 -d {} > {}'.format(tmp_base64_filepath, tmp_filepath))
-            self.result_postup.append('rm {}'.format(tmp_base64_filepath))
-
+            tmp_filepath = self.add_write_tmpfile_bytes(json.dumps(self.container_bootstrap, ensure_ascii=False).encode(), '.json')
             self.result_container_prebootstrap.append(self.get_podman_cmd_with(
                 'podman cp {} {}:/root/conf/bootstrap.json'.format(tmp_filepath, self.get_container_name())
             ))
-            self.result_container_prebootstrap.append('rm {}'.format(tmp_filepath))
 
         if self.result_container_prebootstrap or self.result_container_postbootstrap:
             self.result_postup.append(self.get_podman_cmd_with(
@@ -1016,7 +1080,12 @@ class Parser:
                     self.result_postup.append('ip rule add from {} lookup {}'.format(ip_cidr, current_lookup))
                     self.result_postdown.append('ip rule del from {} lookup {}'.format(ip_cidr, current_lookup))
 
-        if self.flag_require_systemd_clean:
+    def compile_final(self):
+        if self.flag_require_tmpfile_clean:
+            self.result_postup.insert(0, 'rm /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
+            self.result_postup.append('rm /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
+
+        if self.flag_require_systemd_clean or self.opt_use_systemd:
             self.result_postup.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
             self.result_postdown.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
 
