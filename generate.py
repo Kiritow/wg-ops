@@ -37,6 +37,7 @@ HELP
     parser.parse(content)
     parser.compile_interface()
     parser.compile_peers()
+    parser.compile_final()
 
     if '-k' in opts or ('-o' in opts and opts['-o'] == '-'):
         print(parser.get_result())
