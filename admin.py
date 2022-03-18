@@ -149,6 +149,7 @@ class Config:
         parser.parse(raw_content)
         parser.compile_interface()
         parser.compile_peers()
+        parser.compile_final()
         return parser.get_result()
 
     def ui_create_interface(self, interface_name):
