@@ -600,7 +600,7 @@ class Parser:
             return
 
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-client-{} --collect {} -config {}'.format(
+            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-trojan-client-{} --collect {} --property Restart=always -config {}'.format(
                 self.wg_name, str(uuid.uuid4()), self.path_bin_trojan, temp_config_path,
             ))
             return
@@ -1082,8 +1082,8 @@ class Parser:
 
     def compile_final(self):
         if self.flag_require_tmpfile_clean:
-            self.result_postup.insert(0, 'rm /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
-            self.result_postup.append('rm /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
+            self.result_postup.insert(0, 'rm -f /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
+            self.result_postup.append('rm -f /tmp/wg-ops-tmpfile-{}-*'.format(self.wg_name))
 
         if self.flag_require_systemd_clean or self.opt_use_systemd:
             self.result_postup.insert(0, 'systemctl stop wg-ops-task-{}-*'.format(self.wg_name))
