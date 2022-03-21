@@ -179,6 +179,10 @@ class Parser:
         else:
             return command
 
+    def new_systemd_task_name(self, task_type='general'):
+        self.flag_require_systemd_clean = True
+        return "wg-ops-task-{}-{}-{}".format(self.wg_name, task_type, str(uuid.uuid4()))
+
     def new_tmp_filepath(self, suffix=None):
         self.flag_require_tmpfile_clean = True
         return "/tmp/wg-ops-tmpfile-{}-{}{}".format(self.wg_name, str(uuid.uuid4()), suffix if suffix else "")
@@ -344,8 +348,8 @@ class Parser:
             return
 
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-muxer-{} --collect --property Restart=always {} -l {} -t {} -s {}'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_mux, listen_port, forward_start, forward_size,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always {} -l {} -t {} -s {}'.format(
+                self.new_systemd_task_name('muxer'), self.path_bin_mux, listen_port, forward_start, forward_size,
             ))
             return
 
@@ -370,8 +374,8 @@ class Parser:
             return
         
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-gost-server-{} --collect --property Restart=always {} -L=relay+tls://:{}/127.0.0.1:{}'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_gost, listen_port, self.wg_port,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always {} -L=relay+tls://:{}/127.0.0.1:{}'.format(
+                self.new_systemd_task_name('gost-server'), self.path_bin_gost, listen_port, self.wg_port,
             ))
             return
 
@@ -406,8 +410,8 @@ class Parser:
             return
         
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-gost-client-{} --collect --property Restart=always {} -L udp://:{} -F relay+tls://{}'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_gost, listen_port, tunnel_remote,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always {} -L udp://:{} -F relay+tls://{}'.format(
+                self.new_systemd_task_name('gost-client'), self.path_bin_gost, listen_port, tunnel_remote,
             ))
             return
 
@@ -439,8 +443,8 @@ class Parser:
             return
 
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-server-{} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_udp2raw, temp_config_path,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
+                self.new_systemd_task_name('udp2raw-server'), self.path_bin_udp2raw, temp_config_path,
             ))
             return
 
@@ -496,8 +500,8 @@ class Parser:
             return
 
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-udp2raw-client-{} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_udp2raw, temp_config_path,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always --property KillSignal=SIGINT {} --conf-file {}; sleep 2'.format(
+                self.new_systemd_task_name('udp2raw-client'), self.path_bin_udp2raw, temp_config_path,
             ))
             return
 
@@ -600,8 +604,8 @@ class Parser:
             return
 
         if self.opt_use_systemd:
-            self.result_postup.append('systemd-run --unit wg-ops-tasks-{}-trojan-client-{} --collect {} --property Restart=always -config {}'.format(
-                self.wg_name, str(uuid.uuid4()), self.path_bin_trojan, temp_config_path,
+            self.result_postup.append('systemd-run --unit {} --collect --property Restart=always {} -config {}'.format(
+                self.new_systemd_task_name('trojan-client'), self.path_bin_trojan, temp_config_path,
             ))
             return
 
@@ -1067,9 +1071,8 @@ class Parser:
                     errprint('[WARN] comment or unknown hint: {}'.format(line))
 
             if self.flag_enable_dns_reload and current_endpoint:
-                task_uuid = str(uuid.uuid4())
-                self.result_postup.append('systemd-run --unit wg-ops-task-{}-dnsreload-{} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
-                    self.wg_name, task_uuid, self.path_reload_dns, self.wg_name, current_pubkey, current_endpoint))
+                self.result_postup.append('systemd-run --unit {} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {} {}'.format(
+                    self.new_systemd_task_name('dnsreload'), self.path_reload_dns, self.wg_name, current_pubkey, current_endpoint))
                 self.flag_require_systemd_clean = True
 
             if self.flag_is_route_forward and this_peer_idx == 0:
