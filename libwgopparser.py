@@ -1038,6 +1038,7 @@ class Parser:
 
             self.result_peers.append('[Peer]')
 
+            # compile peer
             for line in this_peer_lines:
                 if not line.startswith('#'):
                     self.result_peers.append(line)
@@ -1076,6 +1077,13 @@ class Parser:
                     if table_name != self.lookup_table:
                         current_lookup = table_name
                         errprint('[WARN] Please ensure custom route table {} exists.'.format(table_name))
+                elif line.startswith('#iptables-gateway'):
+                    parts = line.split(' ')[1:]
+                    interface_name = parts[0]
+
+                    for ip_cidr in current_allowed:
+                        self.result_postup.append('iptables -t nat -A POSTROUTING -s {} -o {} -j MASQUERADE'.format(ip_cidr, interface_name))
+                        self.result_postdown.append('iptables -t nat -D POSTROUTING -s {} -o {} -j MASQUERADE'.format(ip_cidr, interface_name))
                 else:
                     errprint('[WARN] comment or unknown hint: {}'.format(line))
 
