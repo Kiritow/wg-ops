@@ -97,10 +97,12 @@ def rsa_decrypt_base64(private_key, str_data):
 class Parser:
     def __init__(self, wgop_basepath):
         # paths
+        self._path_base = wgop_basepath
         self.path_get_gateway = os.path.join(wgop_basepath, 'tools/get-gateway.py')
         self.path_get_ip = os.path.join(wgop_basepath, 'tools/get-ip.py')
         self.path_get_lan_ip = os.path.join(wgop_basepath, 'tools/get-lan-ip.py')
         self.path_reload_dns = os.path.join(wgop_basepath, 'tools/reload-dns.py')
+        self.path_collect_metrics = os.path.join(wgop_basepath, 'tools/collect-metrics.py')
         self.path_bin_dir = os.path.join(wgop_basepath, 'bin')
         self.path_app_dir = os.path.join(wgop_basepath, 'app')
         self.path_bin_mux = os.path.join(wgop_basepath, 'bin/mux')
@@ -178,6 +180,9 @@ class Parser:
             return command.replace('systemd-run', 'systemd-run --property User={}'.format(self.systemd_user), 1)
         else:
             return command
+
+    def get_metrics_db_filepath(self):
+        return os.path.join(self._path_base, 'local/{}.db'.format(self.wg_name))
 
     def new_systemd_task_name(self, task_type='general'):
         self.flag_require_systemd_clean = True
@@ -775,6 +780,10 @@ class Parser:
                 self.result_postdown.append('iptables -t nat -D POSTROUTING -o {} -j MASQUERADE'.format(self.wg_name))
             elif line.startswith('#enable-dns-reload'):
                 self.flag_enable_dns_reload = True
+            elif line.startswith('#enable-collect-metrics'):
+                self.result_postup.append('systemd-run --unit {} --collect --timer-property AccuracySec=10 --on-calendar *:*:0/30 /usr/bin/python3 {} {} {}'.format(
+                    self.new_systemd_task_name('metrics'), self.path_collect_metrics, self.wg_name, self.get_metrics_db_filepath()
+                ))
             elif line.startswith('#route-to'):
                 self.flag_is_route_forward = True
 

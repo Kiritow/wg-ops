@@ -44,6 +44,10 @@ Set `net.ipv4.ip_forward` to 1. Enable ip packet forward.
 
 Enable DNS reloader for peers with endpoint. For each peer, a [transient timer and service](https://www.freedesktop.org/software/systemd/man/systemd-run.html) will be created and try resolving endpoint domain name every 30 seconds. If the dns record of a domain changes, wg-ops will try to update wireguard interface endpoint settings live.
 
+**enable-collect-metrics**
+
+Enable metrics collector for this interface.
+
 **iptables-forward**
 
 Add iptables rules to accept forward from this wireguard interface. Example: `iptables -A FORWARD -i wg0 -j ACCEPT`
