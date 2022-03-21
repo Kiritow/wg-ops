@@ -56,6 +56,10 @@ Add iptables rules to masquerade source ip as a gateway. Example: `iptables -t n
 
 Run podman container as `username`. Default to `root`.
 
+**systemd-user** *username*
+
+Run systemd timers and services as `username`. Default to `root`. This does not affect services that require root permission.
+
 ## Tunnel Tags
 
 **udp2raw-server** *name* *port* *password*
