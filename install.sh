@@ -2,16 +2,7 @@
 set -xe
 
 sudo apt update
-sudo apt install -y curl wireguard python3 unzip
-
-. /etc/os-release
-echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
-curl -L "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/Release.key" | sudo apt-key add -
-sudo apt update
-sudo apt install -y podman
-
-mkdir -p local
-mkdir -p local/tunnel
+sudo apt install -y curl wireguard wireguard-tools python3 unzip
 
 mkdir -p bin
 cd bin
@@ -26,65 +17,85 @@ tar -xvzf udpspeeder.tgz speederv2_amd64
 chmod +x speederv2_amd64
 rm udpspeeder.tgz
 
-curl -vL https://github.com/ginuerzh/gost/releases/download/v2.11.1/gost-linux-amd64-2.11.1.gz -o gost.gz
-gzip -cd gost.gz > gost
-chmod +x gost
-rm gost.gz
-
 curl -vL https://github.com/p4gefau1t/trojan-go/releases/download/v0.10.6/trojan-go-linux-amd64.zip -o trojan.zip
 unzip -p trojan.zip trojan-go > trojan-go
 chmod +x trojan-go
 rm trojan.zip
 
+if [ ! -z "$INSTALL_GOST" ]
+then
+    curl -vL https://github.com/ginuerzh/gost/releases/download/v2.11.1/gost-linux-amd64-2.11.1.gz -o gost.gz
+    gzip -cd gost.gz > gost
+    chmod +x gost
+    rm gost.gz
+else
+    echo "skip gost download due to INSTALL_GOST not set"
+fi
+
+if [ ! -z "$INSTALL_FRP" ]
+then
+    curl -vL https://github.com/fatedier/frp/releases/download/v0.44.0/frp_0.44.0_linux_amd64.tar.gz -o frp.tgz
+    tar --strip-components=1 -xzvf frp.tgz $(tar -tzvf frp.tgz | grep -e frps$ | awk '{print $6}')
+    tar --strip-components=1 -xzvf frp.tgz $(tar -tzvf frp.tgz | grep -e frpc$ | awk '{print $6}')
+    rm frp.tgz
+else
+    echo "skip frp download due to INSTALL_FRP not set"
+fi 
+
 cd ..
 
-VERIFIED_TUNNEL_HASH="a7ce38b2c30980be4e71c3af8a9c1db8183db349c699fa6f843e67add7e6cca2"
-LOCAL_TUNNEL_HASH=$(sha256sum bin/udp2raw_amd64 | awk '{print $1}')
+verify_hash() {
+    local hash=$(sha256sum bin/$1 | awk '{print $1}')
+    if [ $2 == "$hash" ]
+    then
+        echo "[OK] $1 hash match: $2"
+    else
+        echo "[WARN] $1 hash mismatch. Expected $2, got $hash"
+        sleep 1
+    fi
+}
 
-VERIFIED_SPEEDER_HASH="3cf8f6c1e9baa530170368efb8a4bfcd6e75f88c2726ecbf2a75261dd1dd9fd5"
-LOCAL_SPEEDER_HASH=$(sha256sum bin/speederv2_amd64 | awk '{print $1}')
+verify_hash "udp2raw_amd64" "a7ce38b2c30980be4e71c3af8a9c1db8183db349c699fa6f843e67add7e6cca2"
+verify_hash "speederv2_amd64" "3cf8f6c1e9baa530170368efb8a4bfcd6e75f88c2726ecbf2a75261dd1dd9fd5"
+verify_hash "trojan-go" "cb7db31244ec4213c81cb4ef1080c92b44477a0b1dc101246304846e9d74b640"
 
-VERIFIED_GOST_HASH="5434f730594d29b933087dcaf1ae680bee7077abd021c004f28287deccfe49b5"
-LOCAL_GOST_HASH=$(sha256sum bin/gost | awk '{print $1}')
-
-VERIFIED_TROJANGO_HASH="cb7db31244ec4213c81cb4ef1080c92b44477a0b1dc101246304846e9d74b640"
-LOCAL_TROJANGO_HASH=$(sha256sum bin/trojan-go | awk '{print $1}')
-
-if [ "$LOCAL_TUNNEL_HASH" == "$VERIFIED_TUNNEL_HASH" ]
+if [ ! -z "$INSTALL_GOST" ]
 then
-    echo "[OK] udp2raw hash match: $LOCAL_TUNNEL_HASH"
-else
-    echo "[WARN] udp2raw hash mismatch: $LOCAL_TUNNEL_HASH. Expected: $VERIFIED_TUNNEL_HASH"
+    verify_hash "gost" "5434f730594d29b933087dcaf1ae680bee7077abd021c004f28287deccfe49b5"
 fi
 
-if [ "$LOCAL_SPEEDER_HASH" == "$VERIFIED_SPEEDER_HASH" ]
+if [ ! -z "$INSTALL_FRP"]
 then
-    echo "[OK] speederv2 hash match: $LOCAL_SPEEDER_HASH"
-else
-    echo "[WARN] speederv2 hash mismatch: $LOCAL_SPEEDER_HASH. Expected: $VERIFIED_SPEEDER_HASH"
+    verify_hash "frps" "c3f44da41347b9a2d87d8ea02a3d09cdf3ae7b2fe2e31e7b8d7579e3c890de55"
+    verify_hash "frpc" "1ce3e3deabb8513414f7998ec908b3ff0ee2bcba25ab3a7d49aeb9be24ba1b8f"
 fi
 
-if [ "$LOCAL_GOST_HASH" == "$VERIFIED_GOST_HASH" ]
+if [ ! -z "$INSTALL_BIRD" ]
 then
-    echo "[OK] gost hash match: $LOCAL_GOST_HASH"
+    sudo apt install -y bird2
 else
-    echo "[WARN] gost hash mismatch: $LOCAL_GOST_HASH. Expected: $VERIFIED_GOST_HASH"
+    echo "skip bird2 installation due to INSTALL_BIRD not set"
 fi
 
-if [ "$LOCAL_TROJANGO_HASH" == "$VERIFIED_TROJANGO_HASH" ]
+if [ ! -z "$INSTALL_PODMAN" ]
 then
-    echo "[OK] trojan-go hash match: $LOCAL_TROJANGO_HASH"
+    . /etc/os-release
+    echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/ /" | sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+    curl -L "https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_${VERSION_ID}/Release.key" | sudo apt-key add -
+    sudo apt update
+    sudo apt install -y podman
+
+    podman build . -f DockerfileBase -t wg-ops-base:latest
+    podman build . -f DockerfileBuildEnv -t wg-ops-buildenv:latest
+    podman build . -f DockerfileRunEnv -t wg-ops-runenv:latest
+
+    podman save wg-ops-runenv:latest | sudo podman load
+
+    CONTAINER_ID=$(podman run --rm -it -v ./bin:/root/bin -d wg-ops-buildenv)
+    echo "building with container $CONTAINER_ID"
+    podman cp mux.c $CONTAINER_ID:/root/
+    podman exec -it $CONTAINER_ID bash -c "cd /root && gcc -O3 -o bin/mux mux.c"
+    podman stop $CONTAINER_ID
 else
-    echo "[WARN] trojan-go hash mismatch: $LOCAL_TROJANGO_HASH. Expected: $VERIFIED_TROJANGO_HASH"
+    echo "skip podman installation due to INSTALL_PODMAN not set"
 fi
-
-podman build . -f DockerfileBase -t wg-ops-base:latest
-podman build . -f DockerfileBuildEnv -t wg-ops-buildenv:latest
-podman build . -f DockerfileRunEnv -t wg-ops-runenv:latest
-
-podman save wg-ops-runenv:latest | sudo podman load
-
-CONTAINER_ID=$(podman run --rm -it -v ./bin:/root/bin -d wg-ops-buildenv)
-podman cp mux.c $CONTAINER_ID:/root/
-podman exec -it $CONTAINER_ID bash -c "cd /root && gcc -O3 -o bin/mux mux.c"
-podman stop $CONTAINER_ID
